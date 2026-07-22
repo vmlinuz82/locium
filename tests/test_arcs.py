@@ -66,3 +66,15 @@ def test_empty_input_is_safe():
 def test_single_wing_produces_no_arcs():
     vectors = _unit([[1.0, 0.0], [0.99, 0.01]])
     assert compute_arcs(vectors, ["a", "a"], 2.0, 3, 100) == []
+
+
+def test_infinite_max_distance_never_connects_same_wing():
+    vectors = _unit([[1.0, 0.0], [1.0, 0.01], [0.0, 1.0]])
+    wings = ["a", "a", "b"]
+    for src, dst, _ in compute_arcs(vectors, wings, float("inf"), 3, 100):
+        assert wings[src] != wings[dst]
+
+
+def test_global_cap_zero_returns_empty_list():
+    vectors = _unit([[1.0, 0.0], [0.999, 0.01]])
+    assert compute_arcs(vectors, ["a", "b"], 2.0, 3, 0) == []

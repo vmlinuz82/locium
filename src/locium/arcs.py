@@ -33,13 +33,16 @@ def compute_arcs(
 
     for start in range(0, n, chunk):
         stop = min(start + chunk, n)
+        same_wing = codes[start:stop][:, None] == codes[None, :]
         distances = 1.0 - (vectors[start:stop] @ vectors.T)
-        distances[codes[start:stop][:, None] == codes[None, :]] = np.inf
+        distances[same_wing] = np.inf
 
         for row in range(stop - start):
             i = start + row
             candidates = np.argpartition(distances[row], kth)[:kth]
             for j in candidates:
+                if same_wing[row, j]:
+                    continue
                 distance = float(distances[row][j])
                 if distance > max_distance:
                     continue
