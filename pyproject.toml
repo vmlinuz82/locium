@@ -31,4 +31,8 @@ locium = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-filterwarnings = ["ignore::DeprecationWarning"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore:n_jobs value 1 overridden to 1 by setting random_state:UserWarning",
+    "ignore:The default value of `copy` will change:FutureWarning",
+]

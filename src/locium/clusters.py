@@ -18,7 +18,19 @@ def cluster_labels(
     min_cluster_size: int = 5,
     top_n: int = 3,
 ) -> tuple[list[dict], np.ndarray]:
-    """Cluster 2D coordinates and label each cluster from its members' text."""
+    """Cluster 2D coordinates and label each cluster from its members' text.
+
+    If a cluster's concatenated text yields no usable TF-IDF terms (e.g. it's
+    all stop words), that cluster is still returned with its correct
+    ``cluster`` id and ``centroid``, but with an empty string as its
+    ``label``.
+    """
+    if len(coords) != len(texts):
+        raise ValueError(
+            f"coords and texts must be the same length "
+            f"(got {len(coords)} and {len(texts)})"
+        )
+
     n = len(coords)
     if n < min_cluster_size:
         return [], np.full(n, -1, dtype=int)
@@ -35,13 +47,19 @@ def cluster_labels(
     vectorizer = TfidfVectorizer(
         stop_words="english", max_features=5000, token_pattern=_TOKEN_PATTERN
     )
-    matrix = vectorizer.fit_transform(documents)
-    terms = np.array(vectorizer.get_feature_names_out())
+    try:
+        matrix = vectorizer.fit_transform(documents)
+        terms = np.array(vectorizer.get_feature_names_out())
+    except ValueError:
+        matrix = None
+        terms = None
 
     clusters = []
     for row, cid in enumerate(cluster_ids):
-        scores = matrix.getrow(row).toarray().ravel()
-        label = " ".join(terms[np.argsort(-scores)[:top_n]])
+        label = ""
+        if matrix is not None:
+            scores = matrix.getrow(row).toarray().ravel()
+            label = " ".join(terms[np.argsort(-scores)[:top_n]])
         members = coords[assignments == cid]
         clusters.append(
             {

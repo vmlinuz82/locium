@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from locium.clusters import cluster_labels
 
@@ -46,3 +47,19 @@ def test_empty_input_is_safe():
     clusters, assignments = cluster_labels(np.zeros((0, 2), dtype=np.float32), [])
     assert clusters == []
     assert len(assignments) == 0
+
+
+def test_stop_word_only_text_yields_empty_labels():
+    coords, _ = _two_blobs()
+    texts = ["a is to of an it be"] * 12 + ["the or if to a an"] * 12
+    clusters, _ = cluster_labels(coords, texts, min_cluster_size=5)
+    assert len(clusters) == 2
+    assert all(c["label"] == "" for c in clusters)
+
+
+def test_mismatched_lengths_raise_value_error():
+    coords, texts = _two_blobs()
+    with pytest.raises(ValueError) as excinfo:
+        cluster_labels(coords, texts[:12], min_cluster_size=5)
+    assert "24" in str(excinfo.value)
+    assert "12" in str(excinfo.value)
