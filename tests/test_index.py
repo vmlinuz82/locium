@@ -1,5 +1,8 @@
 import json
+import os
+import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -95,8 +98,12 @@ def test_crash_mid_write_leaves_previous_artifact_intact(tmp_path, monkeypatch):
 
     # Patch the staging write of vectors.bin: meta.json for the new index
     # will already be staged when this fires, but the real target directory
-    # is never touched until the final os.replace, so this exercises exactly
-    # the window the atomic-staging fix closes.
+    # is never touched until the final os.replace. This crash point was
+    # already safe by construction (staging is a separate directory the
+    # target never depends on) -- it doesn't exercise the inter-rename
+    # window the atomic-staging fix introduced. See
+    # test_crash_between_renames_recovers_and_retry_preserves_backup for
+    # a test of that window.
     monkeypatch.setattr(Path, "write_bytes", boom)
 
     new_meta = _meta() | {"drawer_count": 99}
@@ -107,6 +114,65 @@ def test_crash_mid_write_leaves_previous_artifact_intact(tmp_path, monkeypatch):
     assert read_meta(tmp_path / "idx") == _meta()
     assert np.array_equal(read_vectors(tmp_path / "idx", 2, 4), original_vectors)
     assert not (tmp_path / "idx.old").exists()
+
+
+def test_crash_between_renames_recovers_and_retry_preserves_backup(
+    tmp_path, monkeypatch
+):
+    idx_path = tmp_path / "idx"
+    old_path = tmp_path / "idx.old"
+    original_vectors = np.array([[1, -2, 3, -4], [5, 6, 7, 8]], dtype=np.int8)
+    write_index(idx_path, _meta(), original_vectors)
+
+    new_meta = _meta() | {"drawer_count": 99}
+    new_vectors = np.zeros((2, 4), dtype=np.int8)
+
+    real_replace = os.replace
+    call_count = {"n": 0}
+
+    def flaky_replace(src, dst):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise OSError("power cut")
+        return real_replace(src, dst)
+
+    # Fault the swap between the two renames: the first os.replace (moving
+    # `idx` aside to `idx.old`) succeeds, the second (committing staging
+    # into `idx`) fails. This leaves `idx` missing, `idx.old` holding the
+    # last-good artifact, and the fully-written staging dir still on disk.
+    with patch("os.replace", side_effect=flaky_replace):
+        with pytest.raises(OSError, match="power cut"):
+            write_index(idx_path, new_meta, new_vectors)
+
+    # The last-good artifact must still be recoverable, whether directly
+    # at idx_path or in the sibling backup.
+    if index_exists(idx_path):
+        assert read_meta(idx_path) == _meta()
+        assert np.array_equal(read_vectors(idx_path, 2, 4), original_vectors)
+    else:
+        assert index_exists(old_path)
+        assert read_meta(old_path) == _meta()
+        assert np.array_equal(read_vectors(old_path, 2, 4), original_vectors)
+
+    # Guard shutil.rmtree so it's proven that `idx.old` is only ever
+    # removed once `idx_path` exists again -- i.e. recovery ran before any
+    # destructive cleanup, so this retry cannot destroy the sole surviving
+    # copy while it is the only one left.
+    real_rmtree = shutil.rmtree
+
+    def guarded_rmtree(target, *args, **kwargs):
+        if Path(target) == old_path:
+            assert idx_path.exists(), "backup removed while idx_path was missing"
+        return real_rmtree(target, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "rmtree", guarded_rmtree)
+
+    write_index(idx_path, new_meta, new_vectors)
+
+    assert index_exists(idx_path)
+    assert read_meta(idx_path) == new_meta
+    assert np.array_equal(read_vectors(idx_path, 2, 4), new_vectors)
+    assert not old_path.exists()
 
 
 def test_read_vectors_rejects_byte_length_mismatch(tmp_path):

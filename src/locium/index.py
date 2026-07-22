@@ -32,6 +32,18 @@ def write_index(path: Path, meta: dict, vectors: np.ndarray) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    old = path.with_name(path.name + ".old")
+
+    # If `path` is missing while `.old` is present, a previous swap was
+    # interrupted between moving `path` aside and replacing it with the
+    # staged directory: `.old` is the last-known-good artifact, not a
+    # stale leftover, so it must be restored before anything else runs.
+    # Otherwise the unconditional cleanup below would delete the one
+    # surviving copy, and a failure during this retry would then make
+    # the loss permanent.
+    if not path.exists() and old.exists():
+        os.replace(old, path)
+
     staging = path.with_name(path.name + ".new")
     if staging.exists():
         shutil.rmtree(staging)
@@ -40,7 +52,6 @@ def write_index(path: Path, meta: dict, vectors: np.ndarray) -> None:
     (staging / META_NAME).write_text(json.dumps(meta, indent=2), encoding="utf-8")
     (staging / VECTORS_NAME).write_bytes(np.ascontiguousarray(vectors).tobytes())
 
-    old = path.with_name(path.name + ".old")
     if old.exists():
         shutil.rmtree(old)
 
@@ -60,6 +71,16 @@ def read_meta(path: Path) -> dict:
 
 
 def read_vectors(path: Path, count: int, dim: int) -> np.ndarray:
+    """Read vectors.bin and reshape it to (count, dim).
+
+    Validates that the file's byte length equals ``count * dim``, which
+    catches truncation or a caller passing the wrong ``count``/``dim``.
+    It cannot by itself detect a same-length but stale ``vectors.bin`` --
+    a length check can't distinguish correct new bytes from stale bytes
+    of identical length. That case is ruled out structurally by
+    ``write_index``'s atomic staging swap, which makes it impossible for
+    ``meta.json`` and ``vectors.bin`` to come from different generations.
+    """
     data = (path / VECTORS_NAME).read_bytes()
     expected = count * dim
     if len(data) != expected:
