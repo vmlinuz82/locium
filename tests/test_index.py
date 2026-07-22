@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -83,3 +84,34 @@ def test_meta_is_human_readable(tmp_path):
     raw = (tmp_path / "idx" / META_NAME).read_text(encoding="utf-8")
     assert "\n" in raw
     json.loads(raw)
+
+
+def test_crash_mid_write_leaves_previous_artifact_intact(tmp_path, monkeypatch):
+    original_vectors = np.array([[1, -2, 3, -4], [5, 6, 7, 8]], dtype=np.int8)
+    write_index(tmp_path / "idx", _meta(), original_vectors)
+
+    def boom(self, data):
+        raise OSError("disk full")
+
+    # Patch the staging write of vectors.bin: meta.json for the new index
+    # will already be staged when this fires, but the real target directory
+    # is never touched until the final os.replace, so this exercises exactly
+    # the window the atomic-staging fix closes.
+    monkeypatch.setattr(Path, "write_bytes", boom)
+
+    new_meta = _meta() | {"drawer_count": 99}
+    with pytest.raises(OSError, match="disk full"):
+        write_index(tmp_path / "idx", new_meta, np.zeros((2, 4), dtype=np.int8))
+
+    assert index_exists(tmp_path / "idx")
+    assert read_meta(tmp_path / "idx") == _meta()
+    assert np.array_equal(read_vectors(tmp_path / "idx", 2, 4), original_vectors)
+    assert not (tmp_path / "idx.old").exists()
+
+
+def test_read_vectors_rejects_byte_length_mismatch(tmp_path):
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8))
+    (tmp_path / "idx" / VECTORS_NAME).write_bytes(b"\x00" * 5)
+
+    with pytest.raises(ValueError, match="8.*5|5.*8"):
+        read_vectors(tmp_path / "idx", 2, 4)
