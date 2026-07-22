@@ -33,8 +33,8 @@ MemPalace context, because the tool may later point at other memory stores. This
    during work, but with the intermediate state made visible and durable.
 2. **Inspection** (secondary) — see memory health as geometry: fragmented wings, stale
    regions, orphaned noise, oversized blobs.
-3. **Curation** (phase 2, out of scope here) — promote discovered connections into
-   stored tunnels, retag, prune.
+3. **Curation** (partly in v1) — promote discovered connections into stored tunnels.
+   Retagging, pruning and any editing of drawer content remain phase 2.
 
 ## Context: the state of the palace
 
@@ -72,8 +72,14 @@ That entry followed the loss of a palace to a 0-byte `link_lists.bin`, where the
 was found to carry the same corruption. ChromaDB's `PersistentClient` makes no
 multi-process guarantees, and the MCP server holds that client open all day.
 
-**Locium must never be a second process on the live store.** This is a hard requirement,
-not a preference.
+**Locium must never be a second process on the live Chroma store.** This is a hard
+requirement, not a preference.
+
+The constraint is specifically about **Chroma**. Not all palace state lives there —
+explicit tunnels are stored as plain JSON at `~/.mempalace/tunnels.json`
+(`palace_graph.py:291`), written under an flock with an atomic tmp-file replace. Writing
+a tunnel never opens Chroma and never touches the hnsw index files. See *Writing
+tunnels*.
 
 The MCP tools cannot substitute: `mempalace_search` returns text, wing, room and a
 distance score, but never the raw embedding vector. Projection needs vectors. Direct read
@@ -121,7 +127,7 @@ locium serve     # python: fastapi serves viewer + index on :7777
 
    - **Precomputed `arcs[]`** (this step) — cross-wing only, thresholded and capped,
      baked into the artifact. Powers the always-available overview of cross-wing
-     structure and supplies phase-2 tunnel candidates. Global, static.
+     structure and supplies the candidate set for tunnel confirmation. Global, static.
    - **Click-time k-NN** (client-side, from `vectors.bin`) — top 10 neighbours of the
      selected drawer, *including same-wing ones*, computed fresh on each selection.
      Local, dynamic, never stored.
@@ -182,8 +188,8 @@ revealing a drawer's neighbours needs no server round-trip.
 
 - **Build:** Python — forced, since reading Chroma and running UMAP are Python and
   mempalace is already installed as a Python package.
-- **Serve:** FastAPI, ~50 lines. `GET /index`, `POST /search` (embeds the query),
-  `POST /rebuild`.
+- **Serve:** FastAPI. `GET /index`, `POST /search` (embeds the query), `POST /rebuild`,
+  `GET /tunnels`, `POST /tunnel`, `DELETE /tunnel/{id}`.
 - **Frontend:** vanilla JS on **Canvas 2D**. SVG gives one DOM node per drawer — fine at
   500, janky at 5k, dead at 50k. The palace grew from 839 to 5,101 drawers in roughly two
   months, so designing for 50k+ is next year, not premature.
@@ -228,8 +234,9 @@ of a persistent map rather than a blank canvas, so orientation is never lost.
 trail:  "chromadb corruption" › #41 palace-rebuild › #883 link_lists › ⌫
 ```
 
-The trail is re-walkable and is the phase-2 hook: a path walked twice is evidence for a
-tunnel.
+The trail is re-walkable, and it feeds tunnel creation directly: a path walked twice is
+evidence that two areas relate, and any hop in the trail can be confirmed as a tunnel
+without leaving the map. See *Writing tunnels*.
 
 ### Search: highlight, never reflow
 
@@ -253,10 +260,64 @@ View toggles, not a separate mode:
 - **Slivers** — wing fragmentation, e.g. `niamavreme` / `wing_niamavreme` /
   `niamavreme-infra` as three separate rectangles
 
+## Writing tunnels
+
+v1 can record connections, not only display them. This is the one write capability in
+scope, and it is deliberately narrow.
+
+### Mechanism
+
+Locium imports `mempalace.palace_graph` and calls `create_tunnel` / `delete_tunnel`
+directly. It does **not** speak MCP and does **not** write JSON by hand.
+
+This is safe for a reason specific to tunnels: they persist to
+`~/.mempalace/tunnels.json`, not to Chroma. `create_tunnel` serialises its
+load → mutate → save cycle under `mine_lock(_TUNNEL_FILE)` and commits via tmp-file +
+`os.replace`, so concurrent writers are already handled. Locium calling that function is
+byte-for-byte the same operation the MCP server performs, with the same lock. No second
+Chroma client is created, and the hnsw index files are never opened.
+
+Calling mempalace's own function rather than reimplementing it is load-bearing — a
+hand-rolled writer would not take the lock and would reintroduce lost updates.
+
+### Flow
+
+1. Select an arc on the map (or any two drawers).
+2. The label field pre-fills from the cluster labels at both endpoints; edit freely.
+3. Confirm. Locium calls `create_tunnel` with both wings, both rooms, both drawer ids and
+   the label, all read from `meta.json`.
+4. Confirmed tunnels render as a distinct always-on edge style, separate from computed
+   arcs — the difference between "the vectors say these are close" and "a human said
+   these belong together".
+
+`GET /tunnels` reads the current set on load, so confirmed tunnels survive rebuilds and
+appear immediately. Deleting is supported via `delete_tunnel`.
+
+### Known constraint: tunnels collapse per room pair
+
+The canonical tunnel ID is
+`sha256(sorted("source_wing/source_room", "target_wing/target_room"))[:16]` —
+**drawer ids are not part of the identity** (`palace_graph.py:334`). Consequences:
+
+- Every drawer↔drawer arc between the same two `wing/room` pairs resolves to **one**
+  tunnel. A second confirmation updates the existing record's label and drawer ids rather
+  than adding a second one.
+- Tunnels are **symmetric**: `create_tunnel(A, B)` and `create_tunnel(B, A)` are the same
+  record. Arcs are therefore undirected, which matches how they are drawn.
+
+**Decision:** accept this rather than work around it. A tunnel asserts *"these two rooms
+relate"*, with the drawer pair recorded as the exemplar that prompted the assertion.
+Maintaining a parallel drawer-level store under `~/.locium/` would create a second source
+of truth for the same claim.
+
+The UI must make the collapse visible: when the selected arc's room pair already has a
+tunnel, show the existing label and state plainly that confirming will update that record
+rather than create a new one.
+
 ## Non-goals for v1
 
-- **Any write to the palace.** Read-only. Tunnel creation, retagging and deletion are
-  phase 2, and will go through the mempalace CLI/MCP, never direct Chroma access.
+- **Any write to Chroma.** Drawer creation, editing, retagging and deletion are phase 2.
+  Tunnel create/delete is in scope and is *not* a Chroma write — see *Writing tunnels*.
 - **Knowledge-graph visualisation.** 14 triples does not earn a view. Revisit at ~500.
 - **Other memory backends.** The name must survive repointing; v1 must not abstract for
   it. One backend, no plugin interface.
@@ -278,6 +339,10 @@ View toggles, not a separate mode:
 | Palace missing or moved | `--palace` flag, `MEMPALACE_PALACE` env var, default `~/.mempalace/palace`. Explicit error, no guessing. |
 | Empty palace | Valid empty index, empty-state UI, not a broken canvas. |
 | Port in use | `--port`, otherwise the next free port above 7777. |
+| **mempalace API drift** | Locium imports `mempalace.palace_graph`. On startup, assert the module exposes `create_tunnel`, `delete_tunnel` and `list_tunnels` with the expected signature, and record the mempalace version in `meta.json`. Fail with a clear message rather than a stack trace mid-write. Verified against mempalace 3.3.3. |
+| Tunnel endpoint no longer exists | A tunnel may reference a wing/room/drawer removed since it was created. `GET /tunnels` returns it regardless; the UI renders it as dangling rather than dropping it silently — a dangling tunnel is a finding, not an error. |
+| `tunnels.json` malformed | `_load_tunnels` is the sole reader; if it raises, `serve` starts read-only with a banner rather than refusing to boot. The map is still useful without tunnels. |
+| Confirming an arc whose room pair is already tunnelled | Show the existing label and state that confirming updates that record. Never silently overwrite. |
 
 ## Testing
 
@@ -302,6 +367,17 @@ float32 and assert at least 8 overlap.
 
 **API** — FastAPI `TestClient`: `/index` serves valid JSON, `/search` embeds and returns
 ranked ids, `/rebuild` shells out correctly.
+
+**Tunnel writes** — against a temporary `HOME` so the real `~/.mempalace/tunnels.json` is
+never touched:
+
+- create → `list_tunnels` returns it with both drawer ids and the label
+- create the same room pair twice → **one** record, label updated, `created_at` preserved
+- create reversed (`B, A` after `A, B`) → still one record, confirming symmetry
+- delete → removed; deleting an unknown id is a no-op, not an error
+- the write goes through `palace_graph.create_tunnel`, never a hand-rolled JSON write.
+  A test asserts Locium holds no direct reference to `_TUNNEL_FILE`, since bypassing the
+  lock would reintroduce lost updates.
 
 **Frontend** — Playwright: N dots render, click opens the reading pane, search dims
 non-matches, trail appends, zoom switches level of detail.
