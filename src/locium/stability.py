@@ -19,8 +19,11 @@ def place_into_existing(
 ) -> np.ndarray:
     """Position new drawers near their nearest already-placed neighbours.
 
-    Vectors are assumed L2-normalised, so a dot product is cosine similarity.
-    A small deterministic jitter keeps identical drawers from stacking into a
+    Vectors are assumed L2-normalised, so a dot product is cosine similarity
+    in the signed range [-1, 1]. Similarities are remapped from [-1, 1] onto
+    [0, 1] before normalising into weights, so ordering among neighbours is
+    preserved across the whole signed range, not just the positive half. A
+    small deterministic jitter keeps identical drawers from stacking into a
     single unclickable point.
     """
     if len(new_vectors) == 0:
@@ -32,8 +35,10 @@ def place_into_existing(
     sims = new_vectors @ placed_vectors.T
     top = np.argsort(-sims, axis=1)[:, :neighbours]
 
-    weights = np.clip(np.take_along_axis(sims, top, axis=1), 1e-6, None)
-    weights = weights / weights.sum(axis=1, keepdims=True)
+    weights = (1.0 + np.take_along_axis(sims, top, axis=1)) / 2.0
+    row_sums = weights.sum(axis=1, keepdims=True)
+    uniform = np.full_like(weights, 1.0 / neighbours)
+    weights = np.where(row_sums > 0, weights / np.where(row_sums > 0, row_sums, 1.0), uniform)
     coords = (placed_coords[top] * weights[:, :, None]).sum(axis=1)
 
     if jitter > 0:

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from locium.stability import merge_coords, place_into_existing
 
@@ -59,3 +60,44 @@ def test_placing_nothing_returns_an_empty_array():
         np.zeros((0, 2), dtype=np.float32), placed_vectors, placed_coords, seed=42
     )
     assert out.shape == (0, 2)
+
+
+def test_k_larger_than_placed_drawers_does_not_raise():
+    placed_vectors = _unit([[1.0, 0.0], [0.0, 1.0]])
+    placed_coords = np.array([[0.0, 0.0], [500.0, 500.0]], dtype=np.float32)
+    new_vectors = _unit([[0.99, 0.01], [0.5, 0.5]])
+
+    coords = place_into_existing(
+        new_vectors, placed_vectors, placed_coords, seed=42, k=10, jitter=0.0
+    )
+    assert coords.shape == (2, 2)
+
+
+def test_placing_into_an_empty_space_raises():
+    placed_vectors = np.zeros((0, 8), dtype=np.float32)
+    placed_coords = np.zeros((0, 2), dtype=np.float32)
+    new_vectors = _unit([[1.0, 0.0]])
+
+    with pytest.raises(ValueError):
+        place_into_existing(new_vectors, placed_vectors, placed_coords, seed=42)
+
+
+def test_non_positive_similarity_preserves_ordering():
+    # Both neighbours are non-positive similarity but differ in magnitude:
+    # sim ~ -0.2 (less dissimilar) vs sim ~ -0.8 (more dissimilar). The old
+    # clip-to-1e-6 implementation floors both to the same value, collapsing
+    # them to equal weights (an unweighted centroid); the remap keeps the
+    # -0.2 neighbour's coordinate closer.
+    placed_vectors = _unit([[-0.2, 0.9798], [-0.8, 0.6]])
+    placed_coords = np.array([[0.0, 0.0], [1000.0, 1000.0]], dtype=np.float32)
+    new_vectors = _unit([[1.0, 0.0]])
+
+    coords = place_into_existing(
+        new_vectors, placed_vectors, placed_coords, seed=42, k=2, jitter=0.0
+    )
+
+    near = placed_coords[0]
+    far = placed_coords[1]
+    dist_to_near = np.linalg.norm(coords[0] - near)
+    dist_to_far = np.linalg.norm(coords[0] - far)
+    assert dist_to_near < dist_to_far
