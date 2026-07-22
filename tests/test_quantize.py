@@ -24,15 +24,20 @@ def test_values_are_clipped_into_range():
     assert q.max() <= 127 and q.min() >= -127
 
 
-def _clustered(n_centroids: int = 12, points_per_centroid: int = 25, dim: int = 384, perturbation: float = 0.35, seed: int = 7) -> np.ndarray:
+def _clustered(n_centroids: int = 12, points_per_centroid: int = 25, dim: int = 384, noise_to_signal: float = 0.6, seed: int = 7) -> np.ndarray:
     """Generate clustered unit vectors for ranking-fidelity testing.
 
-    Random high-dimensional vectors are uniformly distributed (concentration of measure),
-    leaving no neighbourhood structure to preserve. Real text embeddings cluster, so this
-    fixture uses 12 random centroids with small perturbations to reflect realistic
-    similarity gaps. The gap between rank-8 and rank-11 neighbours (0.00581) is then
-    roughly twice the quantisation error (0.00254), making rank swaps detectable rather
-    than noise artefacts.
+    Random high-dimensional unit vectors are near-equidistant (concentration of
+    measure), so they carry no neighbourhood structure to preserve and would
+    only test noise, not quantisation fidelity. Real sentence embeddings do
+    cluster, so this fixture builds 12 random centroids and scatters points
+    around each with a perturbation whose norm is a fixed fraction
+    (`noise_to_signal`) of the unit centroid's norm - dividing by sqrt(dim)
+    keeps that ratio meaningful regardless of dimensionality, unlike a bare
+    per-component scale that silently changes meaning as dim changes. At
+    noise_to_signal=0.6, every point's true top-10 neighbours are entirely
+    within its own cluster (measured), giving the test real neighbourhood
+    structure to check quantisation against.
     """
     rng = np.random.default_rng(seed)
 
@@ -41,9 +46,10 @@ def _clustered(n_centroids: int = 12, points_per_centroid: int = 25, dim: int = 
     centroids = centroids / np.linalg.norm(centroids, axis=1, keepdims=True)
 
     # Scatter points around each centroid
+    per_component_scale = noise_to_signal / np.sqrt(dim)
     vectors = []
     for centroid in centroids:
-        perturbations = rng.normal(scale=perturbation, size=(points_per_centroid, dim)).astype(np.float32)
+        perturbations = rng.normal(scale=per_component_scale, size=(points_per_centroid, dim)).astype(np.float32)
         points = centroid + perturbations
         # L2-normalise after perturbation
         points = points / np.linalg.norm(points, axis=1, keepdims=True)
