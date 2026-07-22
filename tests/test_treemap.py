@@ -37,10 +37,27 @@ def test_rects_stay_inside_the_usable_area():
         assert r.y + r.h <= usable_h + 1e-6
 
 
-def test_layout_is_alphabetical_and_stable_under_count_drift():
+# Cross-rebuild coordinate stability is guaranteed by the build pipeline
+# persisting each wing's rectangle in the index, not by this function. That
+# behavior is tested at the build pipeline level, not here.
+def test_layout_order_is_alphabetical():
     before = wing_rects({"alpha": 100, "beta": 50, "gamma": 25}, CANVAS, 0.15)
     after = wing_rects({"alpha": 104, "beta": 50, "gamma": 25}, CANVAS, 0.15)
     assert list(before) == list(after) == ["alpha", "beta", "gamma"]
+
+
+def test_rects_do_not_overlap_under_extreme_count_skew():
+    usable_h = CANVAS.h * 0.85
+    rects = wing_rects({"huge": 10000, "tiny_a": 1, "tiny_b": 1}, CANVAS, 0.15)
+    values = list(rects.values())
+    for i in range(len(values)):
+        for j in range(i + 1, len(values)):
+            assert not _overlaps(values[i], values[j])
+    for r in values:
+        assert r.x >= -1e-6
+        assert r.y >= -1e-6
+        assert r.x + r.w <= CANVAS.w + 1e-6
+        assert r.y + r.h <= usable_h + 1e-6
 
 
 def test_zero_count_wings_are_dropped():

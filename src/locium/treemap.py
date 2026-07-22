@@ -1,8 +1,13 @@
 """Macro layout: a squarified treemap allocates each wing a rectangle.
 
-Wings are laid out in alphabetical order so the partition does not reshuffle
-when drawer counts drift. A gutter strip is reserved at the bottom of the
-canvas so wings added later can be placed without moving existing ones.
+Wings are laid out in alphabetical order so the initial layout is
+deterministic, independent of the order drawer counts happen to arrive in.
+Stability across rebuilds is not a property of this module: the build
+pipeline persists each wing's rectangle in the index and only calls
+wing_rects on the first build or an explicit refit, so known wings keep
+their coordinates instead of being recomputed. A gutter strip is reserved
+at the bottom of the canvas so wings added later can be placed without
+moving existing ones.
 """
 
 import squarify
