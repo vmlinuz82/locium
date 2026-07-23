@@ -1,4 +1,6 @@
 import importlib
+import os
+import time
 
 import numpy as np
 import pytest
@@ -29,6 +31,39 @@ def test_index_endpoint_returns_meta(client):
     assert body["drawer_count"] == 6
     assert len(body["drawers"]) == 6
     assert "stale" in body
+
+
+def test_stale_flag_reflects_palace_modification(fake_palace, tmp_path, monkeypatch):
+    """Verify staleness detection in both directions: not stale immediately after build, stale after modification."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    import mempalace.palace_graph as palace_graph
+
+    importlib.reload(palace_graph)
+
+    index_path = tmp_path / "idx"
+    build_index(fake_palace, index_path)
+
+    from locium.server import create_app
+
+    app = create_app(index_path, fake_palace)
+    client = TestClient(app)
+
+    # Check that immediately after build, index is not stale
+    body = client.get("/api/index").json()
+    assert body["stale"] is False, "Index should not be stale immediately after build"
+
+    # Modify the palace by touching a file with an explicitly future timestamp
+    # to avoid filesystem timestamp granularity issues
+    test_file = fake_palace / "test_marker.txt"
+    test_file.write_text("marker")
+    future_time = time.time() + 10.0  # 10 seconds in the future
+    os.utime(test_file, (future_time, future_time))
+
+    # Check that after modification, index is stale
+    body = client.get("/api/index").json()
+    assert body["stale"] is True, "Index should be stale after palace modification"
 
 
 def test_vectors_endpoint_returns_int8_bytes(client):
