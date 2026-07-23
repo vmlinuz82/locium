@@ -22,6 +22,7 @@ class Drawer:
     id: str
     text: str
     wing: str
+    hall: str
     room: str
     created_at: str
     source_file: str

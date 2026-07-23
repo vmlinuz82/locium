@@ -26,6 +26,7 @@ def fake_palace(tmp_path):
         metadatas=[
             {
                 "wing": "alpha" if i < 3 else "beta",
+                "hall": "technical" if i % 2 == 0 else "memory",
                 "room": "technical",
                 "source_file": f"f{i}.jsonl",
                 "filed_at": f"2026-05-0{i + 1}T10:00:00",

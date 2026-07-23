@@ -10,11 +10,13 @@ def test_drawer_fields():
         id="abc",
         text="hello",
         wing="wing_kosio",
+        hall="memory",
         room="diary",
         created_at="2026-05-02T14:59:47",
         source_file="x.jsonl",
     )
     assert d.wing == "wing_kosio"
+    assert d.hall == "memory"
     assert d.room == "diary"
 
 

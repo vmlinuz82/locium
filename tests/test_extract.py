@@ -200,3 +200,24 @@ def test_read_drawers_warns_when_records_are_skipped(tmp_path, monkeypatch):
 def test_read_drawers_does_not_warn_when_nothing_is_skipped(fake_palace, recwarn):
     read_drawers(snapshot_palace(fake_palace))
     assert not any("Skipped" in str(w.message) for w in recwarn.list)
+
+
+def test_hall_is_read_from_metadata(fake_palace):
+    drawers, _ = read_drawers(snapshot_palace(fake_palace))
+    assert {d.hall for d in drawers} == {"technical", "memory"}
+
+
+def test_missing_hall_falls_back_to_unfiled(tmp_path):
+    import chromadb
+
+    palace = tmp_path / "nohall"
+    palace.mkdir()
+    collection = chromadb.PersistentClient(path=str(palace)).get_or_create_collection(
+        name="mempalace_drawers"
+    )
+    collection.add(
+        ids=["only"], documents=["text"], embeddings=[[1.0, 0.0]],
+        metadatas=[{"wing": "solo"}],
+    )
+    drawers, _ = read_drawers(snapshot_palace(palace))
+    assert drawers[0].hall == "unfiled"

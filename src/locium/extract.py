@@ -119,6 +119,7 @@ def read_drawers(palace_copy: Path) -> tuple[list[Drawer], np.ndarray]:
             id=drawer_id,
             text=documents[i] or "",
             wing=(metadatas[i] or {}).get("wing", "unknown"),
+            hall=(metadatas[i] or {}).get("hall") or "unfiled",
             room=(metadatas[i] or {}).get("room", "general"),
             # MemPalace writes the timestamp as "filed_at"; "created_at" is kept
             # as a fallback for other stores that may use that key instead.
