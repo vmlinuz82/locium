@@ -6,21 +6,26 @@ query vectors in the same space and avoids a second model download — the
 weights are already cached under ~/.cache/chroma/onnx_models/.
 """
 
+import threading
+
 import numpy as np
 
 _embedder = None
+_embedder_lock = threading.Lock()
 
 
 def _get_embedder():
     global _embedder
     if _embedder is None:
-        try:
-            from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
-        except ImportError:
-            from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import (
-                ONNXMiniLM_L6_V2,
-            )
-        _embedder = ONNXMiniLM_L6_V2()
+        with _embedder_lock:
+            if _embedder is None:
+                try:
+                    from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+                except ImportError:
+                    from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import (
+                        ONNXMiniLM_L6_V2,
+                    )
+                _embedder = ONNXMiniLM_L6_V2()
     return _embedder
 
 
