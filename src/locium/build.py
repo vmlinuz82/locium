@@ -37,16 +37,16 @@ def _previous_state(index_path: Path) -> tuple[dict, dict]:
 
 
 def _resolve_rects(
-    counts: dict[str, int], previous_rects: dict[str, Rect], refit: bool
+    counts: dict[str, int], previous_rects: dict[str, Rect], refit: bool, tuning: Tuning
 ) -> dict[str, Rect]:
     """Keep known wings where they are; carve new ones out of the gutter."""
     if refit or not previous_rects:
-        return wing_rects(counts, CANVAS, TUNING.gutter_fraction)
+        return wing_rects(counts, CANVAS, tuning.gutter_fraction)
 
     known = {name: rect for name, rect in previous_rects.items() if name in counts}
     fresh = {name: count for name, count in counts.items() if name not in known}
     if fresh:
-        known.update(carve_gutter(fresh, gutter_rect(CANVAS, TUNING.gutter_fraction)))
+        known.update(carve_gutter(fresh, gutter_rect(CANVAS, tuning.gutter_fraction)))
     return known
 
 
@@ -98,7 +98,7 @@ def build_index(
         by_wing[drawer.wing].append(position)
 
     counts = {wing: len(rows) for wing, rows in by_wing.items()}
-    rects = _resolve_rects(counts, previous_rects, refit)
+    rects = _resolve_rects(counts, previous_rects, refit, tuning)
 
     fresh_coords: dict[str, list[float]] = {}
     clusters: list[dict] = []

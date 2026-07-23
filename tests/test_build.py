@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from locium.build import build_index
+from locium.config import Tuning
 from locium.index import read_meta, read_vectors
 from locium.treemap import RefitRequired
 
@@ -99,3 +100,32 @@ def test_meta_records_provenance(fake_palace, tmp_path):
     assert meta["palace_mtime"] > 0
     assert meta["built_at"]
     assert meta["vector_dim"] == 8
+
+
+def test_gutter_fraction_tuning_is_honoured(fake_palace, tmp_path):
+    """Verify that custom gutter_fraction in Tuning is respected for wing sizing."""
+    # Build with default tuning and record where new wings land in the gutter
+    index_path_default = tmp_path / "default"
+    build_index(fake_palace, index_path_default)
+    _add_drawers(fake_palace, ["new_default"], "new_wing_default")
+    meta_default = build_index(fake_palace, index_path_default)
+    default_wing = next(w for w in meta_default["wings"] if w["name"] == "new_wing_default")
+    default_y = default_wing["rect"][1]
+
+    # Build with custom gutter_fraction=0.3 and see where new wings land
+    index_path_custom = tmp_path / "custom"
+    custom_tuning = Tuning(gutter_fraction=0.3)
+    build_index(fake_palace, index_path_custom, tuning=custom_tuning)
+    _add_drawers(fake_palace, ["new_custom"], "new_wing_custom")
+    meta_custom = build_index(fake_palace, index_path_custom, tuning=custom_tuning)
+    custom_wing = next(w for w in meta_custom["wings"] if w["name"] == "new_wing_custom")
+    custom_y = custom_wing["rect"][1]
+
+    # With different gutter fractions, new wings should be placed at different y positions
+    # Default: gutter at 1000 * (1 - 0.15) = 850
+    # Custom: gutter at 1000 * (1 - 0.3) = 700
+    # The custom gutter is lower, so new wings should land at a smaller y value
+    assert custom_y < default_y, (
+        f"Wing with gutter_fraction=0.3 at y={custom_y} should be lower than "
+        f"wing with default gutter_fraction=0.15 at y={default_y}"
+    )
