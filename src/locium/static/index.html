@@ -1,5 +1,39 @@
 <!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8" /><title>Locium</title></head>
-  <body><canvas id="map"></canvas></body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Locium</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="stage">
+        <div id="topbar">
+          <input id="search" type="search" placeholder="Search the palace…" />
+          <button id="clear-search" type="button">Clear</button>
+        </div>
+        <canvas id="map"></canvas>
+        <div id="trail"></div>
+      </div>
+      <aside id="side">
+        <div id="banner-slot"></div>
+        <div class="toggles">
+          <button id="mode-room" type="button" aria-pressed="true">Room</button>
+          <button id="mode-age" type="button" aria-pressed="false">Age</button>
+          <button id="filter-orphans" type="button" aria-pressed="false">Orphans</button>
+          <button id="show-arcs" type="button" aria-pressed="false">Arcs</button>
+          <button id="rebuild" type="button">Rebuild</button>
+        </div>
+        <h2 id="title">Nothing selected</h2>
+        <div id="meta"></div>
+        <div id="text">Click a drawer to read it.</div>
+        <div id="tunnel-slot"></div>
+        <div id="neighbours"></div>
+      </aside>
+    </div>
+    <script src="/knn.js"></script>
+    <script src="/render.js"></script>
+    <script src="/app.js"></script>
+  </body>
 </html>
