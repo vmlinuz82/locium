@@ -28,7 +28,7 @@ def fake_palace(tmp_path):
                 "wing": "alpha" if i < 3 else "beta",
                 "room": "technical",
                 "source_file": f"f{i}.jsonl",
-                "created_at": f"2026-05-0{i + 1}T10:00:00",
+                "filed_at": f"2026-05-0{i + 1}T10:00:00",
             }
             for i in range(count)
         ],

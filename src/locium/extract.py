@@ -120,7 +120,11 @@ def read_drawers(palace_copy: Path) -> tuple[list[Drawer], np.ndarray]:
             text=documents[i] or "",
             wing=(metadatas[i] or {}).get("wing", "unknown"),
             room=(metadatas[i] or {}).get("room", "general"),
-            created_at=(metadatas[i] or {}).get("created_at", ""),
+            # MemPalace writes the timestamp as "filed_at"; "created_at" is kept
+            # as a fallback for other stores that may use that key instead.
+            created_at=(metadatas[i] or {}).get(
+                "filed_at", (metadatas[i] or {}).get("created_at", "")
+            ),
             source_file=(metadatas[i] or {}).get("source_file", ""),
         )
         for i, drawer_id in enumerate(ids)

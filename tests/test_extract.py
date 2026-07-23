@@ -113,6 +113,44 @@ def test_missing_metadata_falls_back_to_defaults(tmp_path):
     assert drawers[0].created_at == ""
 
 
+def test_filed_at_becomes_created_at(tmp_path):
+    """MemPalace's real key: 'filed_at' populates Drawer.created_at."""
+    import chromadb
+
+    palace = tmp_path / "sparse"
+    palace.mkdir()
+    collection = chromadb.PersistentClient(path=str(palace)).get_or_create_collection(
+        name="mempalace_drawers"
+    )
+    collection.add(
+        ids=["only"],
+        documents=["text"],
+        embeddings=[[1.0, 0.0]],
+        metadatas=[{"wing": "solo", "filed_at": "2026-05-08T07:52:22.226459"}],
+    )
+    drawers, _ = read_drawers(snapshot_palace(palace))
+    assert drawers[0].created_at == "2026-05-08T07:52:22.226459"
+
+
+def test_legacy_created_at_is_used_when_filed_at_is_absent(tmp_path):
+    """Fallback path: stores without 'filed_at' still populate Drawer.created_at."""
+    import chromadb
+
+    palace = tmp_path / "sparse"
+    palace.mkdir()
+    collection = chromadb.PersistentClient(path=str(palace)).get_or_create_collection(
+        name="mempalace_drawers"
+    )
+    collection.add(
+        ids=["only"],
+        documents=["text"],
+        embeddings=[[1.0, 0.0]],
+        metadatas=[{"wing": "solo", "created_at": "2026-05-01T10:00:00"}],
+    )
+    drawers, _ = read_drawers(snapshot_palace(palace))
+    assert drawers[0].created_at == "2026-05-01T10:00:00"
+
+
 def test_palace_mtime_is_a_timestamp(fake_palace):
     assert palace_mtime(fake_palace) > 0
 
