@@ -36,15 +36,11 @@ def _build(args: argparse.Namespace) -> int:
     from .extract import PalaceNotFound
     from .treemap import RefitRequired
 
+    palace = resolve_palace(args.palace)
     try:
-        meta = build_index(
-            resolve_palace(args.palace), Path(args.index), refit=args.refit
-        )
+        meta = build_index(palace, Path(args.index), refit=args.refit)
     except (PalaceNotFound, RefitRequired) as exc:
         print(str(exc), file=sys.stderr)
-        return 1
-    except FileNotFoundError as exc:
-        print(f"palace not found at {resolve_palace(args.palace)}", file=sys.stderr)
         return 1
 
     print(f"Indexed {meta['drawer_count']} drawers into {args.index}")

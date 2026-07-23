@@ -3,6 +3,7 @@ import pytest
 
 from locium.build import build_index
 from locium.config import Tuning
+from locium.extract import PalaceNotFound
 from locium.index import read_meta, read_vectors
 from locium.treemap import RefitRequired
 
@@ -129,3 +130,13 @@ def test_gutter_fraction_tuning_is_honoured(fake_palace, tmp_path):
         f"Wing with gutter_fraction=0.3 at y={custom_y} should be lower than "
         f"wing with default gutter_fraction=0.15 at y={default_y}"
     )
+
+
+def test_build_index_raises_palace_not_found_when_palace_missing(tmp_path):
+    """Verify build_index raises PalaceNotFound (not bare FileNotFoundError) for missing palace."""
+    missing_palace = tmp_path / "nonexistent"
+    index_path = tmp_path / "idx"
+    with pytest.raises(PalaceNotFound) as exc_info:
+        build_index(missing_palace, index_path)
+    assert "not found" in str(exc_info.value)
+    assert str(missing_palace) in str(exc_info.value)

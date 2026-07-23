@@ -84,8 +84,8 @@ def build_index(
     tuning: Tuning = TUNING,
 ) -> dict:
     """Build the index artifact from the palace. Returns the meta dict."""
-    mtime = palace_mtime(palace)
     snapshot = snapshot_palace(palace)
+    mtime = palace_mtime(palace)
     try:
         drawers, vectors = read_drawers(snapshot)
     finally:
