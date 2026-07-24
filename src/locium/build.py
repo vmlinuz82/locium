@@ -142,11 +142,19 @@ def build_index(
 
     coords = fresh_coords
 
+    # meta["drawers"], vectors.bin and arcs must share one index space: the
+    # drawn drawers (those with coordinates), in this exact order. Capped-out
+    # drawers have no dot on the map, so a neighbour link or arc to them
+    # could never be drawn anyway.
+    drawn_indices = [i for i, drawer in enumerate(drawers) if drawer.id in coords]
+    drawn_drawers = [drawers[i] for i in drawn_indices]
+    drawn_vectors = vectors[drawn_indices]
+
     meta = {
         "built_at": datetime.now(timezone.utc).isoformat(),
         "palace_mtime": mtime,
-        "drawer_count": len(drawers),
-        "vector_dim": int(vectors.shape[1]) if len(drawers) else 0,
+        "drawer_count": len(drawn_drawers),
+        "vector_dim": int(drawn_vectors.shape[1]) if len(drawn_drawers) else 0,
         "seed": tuning.seed,
         "drawers": [
             {
@@ -159,21 +167,20 @@ def build_index(
                 "y": coords[drawer.id][1],
                 "preview": make_preview(drawer.text, tuning.preview_chars),
             }
-            for drawer in drawers
-            if drawer.id in coords
+            for drawer in drawn_drawers
         ],
         "wings": wings_meta,
         "halls": halls_meta,
         "chambers": chambers_meta,
         "arcs": compute_arcs(
-            vectors,
-            [d.wing for d in drawers],
+            drawn_vectors,
+            [d.wing for d in drawn_drawers],
             tuning.arc_max_distance,
             tuning.arcs_per_drawer,
             tuning.arc_global_cap,
         ),
     }
 
-    texts = {drawer.id: drawer.text for drawer in drawers if drawer.id in coords}
-    write_index(index_path, meta, quantize(vectors), texts)
+    texts = {drawer.id: drawer.text for drawer in drawn_drawers}
+    write_index(index_path, meta, quantize(drawn_vectors), texts)
     return meta

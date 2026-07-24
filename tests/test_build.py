@@ -291,6 +291,49 @@ def test_chamber_over_the_cap_is_marked(fake_palace, tmp_path):
     assert any(c["capped"] for c in meta["chambers"])
 
 
+def test_vectors_and_arcs_are_aligned_to_drawn_drawers(fake_palace, tmp_path):
+    """meta.drawers, vectors.bin and arcs must share one index space."""
+    index_path = tmp_path / "idx"
+    meta = build_index(fake_palace, index_path)
+
+    assert len(meta["drawers"]) == meta["drawer_count"]
+
+    vectors = read_vectors(index_path, meta["drawer_count"], meta["vector_dim"])
+    assert vectors.shape[0] == len(meta["drawers"])
+
+    for src, dst, _distance in meta["arcs"]:
+        assert 0 <= src < len(meta["drawers"])
+        assert 0 <= dst < len(meta["drawers"])
+
+
+def test_vectors_and_arcs_stay_aligned_when_a_chamber_is_capped(tmp_path):
+    """Regression guard: dropping capped-out drawers from meta.drawers must
+    also drop them from vectors.bin and arcs, or the three counts diverge.
+
+    Before the fix, vectors.bin and arcs were built from ALL drawers read
+    from the palace, while meta.drawers only kept the drawn (uncapped)
+    subset -- so with a chamber over the cap, vectors.bin's row count would
+    exceed len(meta.drawers) and this test would fail.
+    """
+    palace = tmp_path / "palace"
+    _make_palace(
+        palace,
+        [(f"d{i}", "w", "h", "r") for i in range(5)],
+    )
+    index_path = tmp_path / "idx"
+    meta = build_index(palace, index_path, tuning=Tuning(dot_cap=2))
+
+    assert len(meta["drawers"]) == 2
+    assert meta["drawer_count"] == 2
+
+    vectors = read_vectors(index_path, meta["drawer_count"], meta["vector_dim"])
+    assert vectors.shape[0] == len(meta["drawers"])
+
+    for src, dst, _distance in meta["arcs"]:
+        assert 0 <= src < len(meta["drawers"])
+        assert 0 <= dst < len(meta["drawers"])
+
+
 def test_capped_chamber_still_reports_its_true_count(fake_palace, tmp_path):
     # Keyed by the full (wing, hall, name) triple, not name alone: room names
     # are shared across wings/halls (e.g. two unrelated "technical" chambers),
