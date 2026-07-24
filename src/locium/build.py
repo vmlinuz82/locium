@@ -2,10 +2,12 @@
 
 The pipeline is snapshot -> extract -> layout -> arcs -> quantise -> write.
 Layout walks wing -> hall -> chamber, positioning each drawer with
-pack_chamber. Wings already in the index keep their persisted rectangle and
-drawers already in the index keep their exact coordinates, so nothing an
-existing locus depends on moves on an ordinary rebuild. Only --refit moves
-anything.
+pack_chamber. Wing/hall/chamber geometry is recomputed fresh from the full
+current set every build, so it is always overlap-free. A drawer's coordinate
+is stable only as long as its chamber (wing, hall, room) is unchanged and its
+old coordinate still falls inside that chamber's current rectangle; otherwise
+it is re-packed. --refit discards all previous coordinates and re-packs every
+chamber from scratch.
 """
 
 import shutil
@@ -21,37 +23,25 @@ from .index import index_exists, read_meta, write_index
 from .models import Rect, make_preview
 from .packing import pack_chamber
 from .quantize import quantize
-from .stability import merge_coords
-
-PAD_HALL, PAD_CHAMBER = 8.5, 5.0
 
 
 def _rect_list(rect: Rect) -> list[float]:
     return [rect.x, rect.y, rect.w, rect.h]
 
 
-def _previous_state(index_path: Path) -> tuple[dict, dict]:
-    """Return (coords by drawer id, rect by wing name) from any existing index."""
+def _previous_state(index_path: Path) -> dict[str, tuple[str, str, str, list[float]]]:
+    """Return, per drawer id, the (wing, hall, room, [x, y]) it had last build."""
     if not index_exists(index_path):
-        return {}, {}
+        return {}
     meta = read_meta(index_path)
-    coords = {d["id"]: [d["x"], d["y"]] for d in meta["drawers"]}
-    rects = {w["name"]: Rect(*w["rect"]) for w in meta["wings"]}
-    return coords, rects
+    return {
+        d["id"]: (d["wing"], d["hall"], d["room"], [d["x"], d["y"]])
+        for d in meta["drawers"]
+    }
 
 
-def _resolve_wing_rects(
-    counts: dict[str, int], previous_rects: dict[str, Rect], refit: bool
-) -> dict[str, Rect]:
-    """Keep known wings where they are; place new ones with building_footprint."""
-    if refit or not previous_rects:
-        return building_footprint(counts)
-
-    known = {name: rect for name, rect in previous_rects.items() if name in counts}
-    fresh = {name: counts[name] for name in counts if name not in known}
-    if fresh:
-        known.update(building_footprint(fresh))
-    return known
+def _inside(rect: Rect, x: float, y: float) -> bool:
+    return rect.x <= x <= rect.x + rect.w and rect.y <= y <= rect.y + rect.h
 
 
 def build_index(
@@ -68,14 +58,14 @@ def build_index(
     finally:
         shutil.rmtree(snapshot.parent, ignore_errors=True)
 
-    previous_coords, previous_rects = _previous_state(index_path)
+    previous = {} if refit else _previous_state(index_path)
 
     by_wing: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for position, drawer in enumerate(drawers):
         by_wing[drawer.wing][drawer.hall].append(position)
 
     wing_counts = {w: sum(len(v) for v in halls.values()) for w, halls in by_wing.items()}
-    wing_rects = _resolve_wing_rects(wing_counts, previous_rects, refit)
+    wing_rects = building_footprint(wing_counts)
 
     wings_meta: list[dict] = []
     halls_meta: list[dict] = []
@@ -87,7 +77,7 @@ def build_index(
             {"name": wing, "rect": _rect_list(wing_rect), "count": wing_counts[wing]}
         )
         hall_counts = {h: len(rows) for h, rows in by_wing[wing].items()}
-        for hall, hall_rect in subdivide(hall_counts, wing_rect, PAD_HALL).items():
+        for hall, hall_rect in subdivide(hall_counts, wing_rect, tuning.pad_hall).items():
             halls_meta.append(
                 {
                     "name": hall,
@@ -101,7 +91,7 @@ def build_index(
                 rows_by_room[drawers[row].room].append(row)
 
             room_counts = {r: len(v) for r, v in rows_by_room.items()}
-            for room, chamber in subdivide(room_counts, hall_rect, PAD_CHAMBER).items():
+            for room, chamber in subdivide(room_counts, hall_rect, tuning.pad_chamber).items():
                 rows = rows_by_room[room]
                 shown = rows[: tuning.dot_cap]
                 chambers_meta.append(
@@ -114,25 +104,43 @@ def build_index(
                         "capped": len(rows) > tuning.dot_cap,
                     }
                 )
-                kept = (
-                    [
-                        previous_coords[drawers[r].id]
-                        for r in shown
-                        if drawers[r].id in previous_coords
-                    ]
-                    if not refit
-                    else []
-                )
+
+                # A previous coordinate is kept only when it is still valid:
+                # the drawer must still belong to this exact chamber and its
+                # old point must still fall inside the chamber's current
+                # rectangle. Matching is by drawer id, never by position.
+                kept_ids: list[str] = []
+                kept_points: list[tuple[float, float]] = []
+                for row in shown:
+                    did = drawers[row].id
+                    prev = previous.get(did)
+                    if prev is None:
+                        continue
+                    pwing, phall, proom, (px, py) = prev
+                    if (pwing, phall, proom) != (wing, hall, room):
+                        continue
+                    if not _inside(chamber, px, py):
+                        continue
+                    kept_ids.append(did)
+                    kept_points.append((px, py))
+
+                kept_id_set = set(kept_ids)
+                remaining_rows = [r for r in shown if drawers[r].id not in kept_id_set]
+
                 points = pack_chamber(
                     len(shown),
                     chamber,
                     tuning.seed,
-                    placed=[tuple(p) for p in kept] or None,
+                    placed=kept_points or None,
                 )
-                for row, (px, py) in zip(shown, points):
+                new_points = points[len(kept_points):]
+
+                for did, (px, py) in zip(kept_ids, kept_points):
+                    fresh_coords[did] = [round(px, 1), round(py, 1)]
+                for row, (px, py) in zip(remaining_rows, new_points):
                     fresh_coords[drawers[row].id] = [round(px, 1), round(py, 1)]
 
-    coords = merge_coords(previous_coords, fresh_coords, refit)
+    coords = fresh_coords
 
     meta = {
         "built_at": datetime.now(timezone.utc).isoformat(),

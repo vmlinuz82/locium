@@ -31,6 +31,8 @@ class Tuning:
     preview_chars: int = 200
     seed: int = 42
     dot_cap: int = 300
+    pad_hall: float = 8.5
+    pad_chamber: float = 5.0
 
 
 TUNING = Tuning()
