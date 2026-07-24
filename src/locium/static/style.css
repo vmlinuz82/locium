@@ -1,62 +1,207 @@
+/* Ported from the approved prototype at .superpowers/sdd/prototype-castle.py
+   (the `HTML` string's embedded <style> block). Ink on paper in light mode,
+   light linework on a dark ground in dark mode — same palette the renderer's
+   THEMES table uses, so JS and CSS never disagree about a colour. */
+
 :root {
-  --bg: #12131a;
-  --panel: #1c1e28;
-  --ink: #e8e9ef;
-  --muted: #8b8fa3;
-  --line: #2c2f3d;
-  --accent: #7aa2f7;
+  --paper: #e9e7e1;
+  --ink: #15150f;
+  --accent: #a8331a;
+  --knock: 233, 231, 225;
+  --line: 21, 21, 15;
 }
 
-* { box-sizing: border-box; }
+:root[data-theme="dark"] {
+  --paper: #15171b;
+  --ink: #d6d1c4;
+  --accent: #e08a5c;
+  --knock: 21, 23, 27;
+  --line: 214, 209, 196;
+}
 
-body {
+* {
+  box-sizing: border-box;
   margin: 0;
-  font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
-  background: var(--bg);
-  color: var(--ink);
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
   overflow: hidden;
+  background: var(--paper);
+  font: 400 9px/1.8 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--ink);
+  transition: background 0.2s, color 0.2s;
 }
 
-#app { display: grid; grid-template-columns: 1fr 380px; height: 100vh; }
-#stage { position: relative; min-height: 0; }
-#map { display: block; width: 100%; height: 100%; cursor: grab; }
-#map.dragging { cursor: grabbing; }
-
-#topbar {
-  position: absolute; top: 0; left: 0; right: 0;
-  display: flex; gap: 8px; align-items: center;
-  padding: 10px; background: linear-gradient(var(--bg), transparent);
+#c {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+#c.drag {
+  cursor: grabbing;
 }
 
-#search { flex: 1; padding: 8px 10px; border-radius: 6px;
-  border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
-
-#trail {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  padding: 8px 10px; font-size: 12px; color: var(--muted);
-  background: linear-gradient(transparent, var(--bg)); white-space: nowrap;
-  overflow-x: auto;
+.c {
+  position: fixed;
+  z-index: 5;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
-#trail button {
-  background: none; border: none; color: var(--accent);
-  cursor: pointer; font: inherit; padding: 0 4px;
+#t {
+  top: 30px;
+  left: 34px;
+}
+#t b {
+  display: block;
+  font-size: 16px;
+  letter-spacing: 0.4em;
+  line-height: 1.2;
+  margin-bottom: 6px;
+}
+#t span {
+  opacity: 0.48;
+}
+#lg {
+  right: 34px;
+  top: 30px;
+  text-align: right;
+  opacity: 0.6;
+}
+#st {
+  right: 34px;
+  bottom: 30px;
+  text-align: right;
+  opacity: 0.42;
+}
+#sc {
+  left: 34px;
+  bottom: 30px;
+  opacity: 0.55;
+}
+#sc i {
+  display: inline-block;
+  width: 88px;
+  height: 3px;
+  margin: 0 9px;
+  vertical-align: middle;
+  background: linear-gradient(90deg, #c9c6bd, #15150f);
 }
 
-#side { border-left: 1px solid var(--line); background: var(--panel);
-  padding: 14px; overflow-y: auto; }
-#side h2 { margin: 0 0 4px; font-size: 15px; }
-#meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
-#text { white-space: pre-wrap; word-break: break-word; font-size: 13px; }
-
-.banner { background: #4a3b12; padding: 8px 10px; border-radius: 6px;
-  margin-bottom: 10px; font-size: 12px; }
-
-.toggles { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-.toggles button, #tunnel-btn {
-  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
-  border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: 12px;
+#q {
+  position: fixed;
+  left: 34px;
+  top: 104px;
+  z-index: 6;
+  width: 236px;
+  background: rgba(var(--knock), 0.94);
+  border: 1px solid rgba(var(--line), 0.42);
+  padding: 7px 9px;
+  font: inherit;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  outline: none;
 }
-.toggles button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#q:focus {
+  border-color: var(--accent);
+}
+#qn {
+  position: fixed;
+  left: 34px;
+  top: 134px;
+  z-index: 6;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
 
-.neighbour { padding: 6px 0; border-top: 1px solid var(--line); cursor: pointer; }
-.neighbour small { color: var(--muted); }
+#zc {
+  position: fixed;
+  left: 34px;
+  top: 164px;
+  z-index: 6;
+  display: flex;
+  gap: 5px;
+}
+#zc button {
+  font: inherit;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: rgba(var(--knock), 0.94);
+  border: 1px solid rgba(var(--line), 0.36);
+  color: var(--ink);
+  padding: 4px 9px;
+  cursor: pointer;
+}
+#zc button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#p {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 376px;
+  z-index: 7;
+  background: rgba(var(--knock), 0.975);
+  border-left: 1px solid rgba(var(--line), 0.5);
+  padding: 30px 28px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#p.on {
+  transform: none;
+}
+#p h3 {
+  font: 400 11px/1.5 inherit;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+#p .meta {
+  opacity: 0.55;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+#p .rule {
+  height: 1px;
+  background: rgba(var(--line), 0.28);
+  margin: 14px 0;
+}
+#p .body {
+  font: 400 11px/1.85 ui-monospace, Menlo, monospace;
+  letter-spacing: 0.01em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-transform: none;
+}
+#p .src {
+  margin-top: 16px;
+  opacity: 0.4;
+  letter-spacing: 0.12em;
+  word-break: break-all;
+}
+#x {
+  position: absolute;
+  right: 22px;
+  top: 24px;
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 13px;
+}
+#x:hover {
+  opacity: 1;
+  color: var(--accent);
+}

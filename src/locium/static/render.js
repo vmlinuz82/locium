@@ -1,53 +1,115 @@
-/* Canvas 2D renderer.
-   SVG would mean one DOM node per drawer — fine at 500, dead at 50k. The
-   palace grows daily, so everything here is immediate-mode drawing. */
+/* Canvas 2D renderer — draws the palace as an architect's floorplan.
+   SVG would mean one DOM node per drawer; fine at 500, dead at 6,000+, so
+   everything here is immediate-mode drawing, redone every frame.
+
+   Ported from the approved prototype at
+   .superpowers/sdd/prototype-castle.py (the `HTML` string). That prototype
+   is the source of truth for every visual constant below — this file only
+   replaces its module-level globals with instance state and its embedded
+   `D` payload with `setData(meta)`. */
+
+/* Two prints of the same drawing: ink on paper, and its negative — light
+   linework on a dark ground, the way a plan reads backlit. */
+const THEMES = {
+  light: {
+    paper: "#e9e7e1", line: "21,21,15", knock: "233,231,225", accent: "168,51,26",
+    grain: 8, dot0: 172, dotSpan: -158, wing: 0.86, hall: 0.42, room: 0.34, dim: 0.10,
+  },
+  dark: {
+    paper: "#15171b", line: "214,209,196", knock: "21,23,27", accent: "224,138,92",
+    grain: 13, dot0: 74, dotSpan: 150, wing: 0.72, hall: 0.34, room: 0.26, dim: 0.09,
+  },
+};
+
+function boxesOverlap(a, b) {
+  return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+}
+
 window.Renderer = class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
+
+    this.meta = { wings: [], halls: [], chambers: [], drawers: [], arcs: [], drawer_count: 0, vector_dim: 0 };
+    this._t = []; // per-drawer recency, 0 (oldest) .. 1 (newest), aligned to meta.drawers
+
     this.scale = 1;
     this.offsetX = 0;
     this.offsetY = 0;
-    this.meta = { drawers: [], wings: [], clusters: [], arcs: [] };
-    this.colourMode = "room";
+    this.baseScale = 1;
+    this.viewW = 0;
+    this.viewH = 0;
+
     this.dimmed = new Set();
     this.highlighted = new Set();
-    this.activeArcs = [];
     this.selected = null;
-    this.roomColours = new Map();
-    this._resize();
-    window.addEventListener("resize", () => { this._resize(); this.draw(); });
-  }
 
-  _resize() {
-    const ratio = window.devicePixelRatio || 1;
-    const rect = this.canvas.getBoundingClientRect();
-    this.canvas.width = rect.width * ratio;
-    this.canvas.height = rect.height * ratio;
-    this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    this.viewW = rect.width;
-    this.viewH = rect.height;
+    this.themeName = "light";
+    this.theme = THEMES.light;
+
+    this._taken = []; // label collision boxes, rebuilt every draw()
+
+    this.fit();
+    this.home();
+
+    window.addEventListener("resize", () => {
+      const ratio = this.baseScale > 0 ? this.scale / this.baseScale : 1;
+      this.fit();
+      this.scale = this.baseScale * ratio;
+      this.draw();
+    });
   }
 
   setData(meta) {
-    this.meta = meta;
-    const rooms = [...new Set(meta.drawers.map((d) => d.room))].sort();
-    rooms.forEach((room, i) => {
-      this.roomColours.set(room, `hsl(${(i * 360) / rooms.length}, 62%, 62%)`);
-    });
+    this.meta = {
+      wings: meta.wings || [],
+      halls: meta.halls || [],
+      chambers: meta.chambers || [],
+      drawers: meta.drawers || [],
+      arcs: meta.arcs || [],
+      drawer_count: meta.drawer_count || 0,
+      vector_dim: meta.vector_dim || 0,
+    };
+    this._t = this._computeRecency(this.meta.drawers);
     this.fit();
+    this.home();
   }
 
+  _computeRecency(drawers) {
+    const seen = new Set();
+    const days = [];
+    drawers.forEach((d) => {
+      const day = (d.date || "").slice(0, 10);
+      if (day && !seen.has(day)) {
+        seen.add(day);
+        days.push(day);
+      }
+    });
+    days.sort();
+    const span = Math.max(days.length - 1, 1);
+    const index = new Map(days.map((day, i) => [day, i / span]));
+    return drawers.map((d) => index.get((d.date || "").slice(0, 10)) ?? 0);
+  }
+
+  /* Recompute the backing store for the current viewport and DPR, and the
+     base scale that fits the 1000x1000 world into it. Does not touch the
+     current pan/zoom — call home() for that. */
   fit() {
-    this.scale = Math.min(this.viewW / 1000, this.viewH / 1000) * 0.92;
+    const ratio = window.devicePixelRatio || 1;
+    const rect = this.canvas.getBoundingClientRect();
+    this.viewW = rect.width;
+    this.viewH = rect.height;
+    this.canvas.width = rect.width * ratio;
+    this.canvas.height = rect.height * ratio;
+    this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    this.baseScale = Math.min(this.viewW / 1000, this.viewH / 1000) * 0.885;
+  }
+
+  /* Reset pan/zoom to show the whole building, centred. */
+  home() {
+    this.scale = this.baseScale;
     this.offsetX = (this.viewW - 1000 * this.scale) / 2;
     this.offsetY = (this.viewH - 1000 * this.scale) / 2;
-  }
-
-  zoomLevel() {
-    if (this.scale < 0.55) return "far";
-    if (this.scale < 2.2) return "mid";
-    return "near";
   }
 
   worldToScreen(x, y) {
@@ -60,7 +122,7 @@ window.Renderer = class Renderer {
 
   zoomBy(factor, px, py) {
     const [wx, wy] = this.screenToWorld(px, py);
-    this.scale = Math.max(0.2, Math.min(30, this.scale * factor));
+    this.scale = Math.max(this.baseScale * 0.55, Math.min(this.baseScale * 26, this.scale * factor));
     this.offsetX = px - wx * this.scale;
     this.offsetY = py - wy * this.scale;
   }
@@ -71,112 +133,195 @@ window.Renderer = class Renderer {
   }
 
   focusOn(x, y) {
-    this.scale = Math.max(this.scale, 4);
+    this.scale = Math.min(this.baseScale * 26, Math.max(this.scale, this.baseScale * 4));
     this.offsetX = this.viewW / 2 - x * this.scale;
     this.offsetY = this.viewH / 2 - y * this.scale;
   }
 
   hitTest(px, py) {
     const [wx, wy] = this.screenToWorld(px, py);
-    const radius = 6 / this.scale;
+    const tol = 8 / this.scale;
     let best = null;
-    let bestDistance = radius;
-    this.meta.drawers.forEach((drawer, index) => {
-      const distance = Math.hypot(drawer.x - wx, drawer.y - wy);
+    let bestDistance = tol;
+    this.meta.drawers.forEach((d, i) => {
+      const distance = Math.hypot(d.x - wx, d.y - wy);
       if (distance < bestDistance) {
         bestDistance = distance;
-        best = index;
+        best = i;
       }
     });
     return best;
   }
 
-  _drawerColour(drawer) {
-    if (this.colourMode === "age") {
-      const year = Number((drawer.date || "").slice(0, 4)) || 2026;
-      const month = Number((drawer.date || "").slice(5, 7)) || 1;
-      const age = (2027 - year) * 12 - month;
-      const light = Math.max(28, 72 - age * 3);
-      return `hsl(28, 70%, ${light}%)`;
+  setTheme(name) {
+    if (!THEMES[name]) return;
+    this.themeName = name;
+    this.theme = THEMES[name];
+    this.draw();
+  }
+
+  /* Per-pixel noise overlay giving the paper its grain. Sized off the
+     canvas's actual backing-store pixels (not CSS pixels) — putImageData
+     ignores the current transform, so on a high-DPI screen using the CSS
+     size here would only grain the top-left quarter of the sheet. */
+  _grain() {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const g = this.ctx.createImageData(w, h);
+    const p = g.data;
+    const alpha = this.theme.grain;
+    for (let i = 0; i < p.length; i += 4) {
+      const n = (Math.random() * 255) | 0;
+      p[i] = p[i + 1] = p[i + 2] = n;
+      p[i + 3] = alpha;
     }
-    return this.roomColours.get(drawer.room) || "#8b8fa3";
+    return g;
+  }
+
+  /* A wall drawn as a filled band between its outer and inner edge, not a
+     stroke — this is what makes it read as masonry (poché) rather than an
+     outline. */
+  _poche(rect, thickness, tone) {
+    const ctx = this.ctx;
+    const [sx, sy] = this.worldToScreen(rect[0], rect[1]);
+    const sw = rect[2] * this.scale;
+    const sh = rect[3] * this.scale;
+    if (sw < 3 || sh < 3) return;
+    const tt = Math.min(thickness, sw / 2.6, sh / 2.6);
+    ctx.fillStyle = tone;
+    ctx.beginPath();
+    ctx.rect(sx, sy, sw, sh);
+    ctx.rect(sx + tt, sy + tt, Math.max(sw - 2 * tt, 0), Math.max(sh - 2 * tt, 0));
+    ctx.fill("evenodd");
+  }
+
+  /* A label with a knockout rect behind it, nudged down (up to three times)
+     to avoid the labels already placed this frame, and dropped rather than
+     painted over a neighbour. */
+  _tag(text, rect, size, alpha, track, accent) {
+    const ctx = this.ctx;
+    const TH = this.theme;
+    const [sx, sy] = this.worldToScreen(rect[0], rect[1]);
+    const sw = rect[2] * this.scale;
+    const sh = rect[3] * this.scale;
+    ctx.font = `400 ${size}px ui-monospace,Menlo,monospace`;
+    ctx.letterSpacing = `${track}px`;
+    let t = text.toUpperCase();
+    let m = ctx.measureText(t).width;
+    const av = sw - 9;
+    if (m > av) {
+      const k = Math.floor((t.length * av) / m);
+      if (k < 3) return;
+      t = t.slice(0, k);
+      m = ctx.measureText(t).width;
+    }
+    if (sh < size + 7) return;
+
+    const aw = accent ? ctx.measureText(accent).width + 6 : 0;
+    const bw = m + aw + 4;
+    const bh = size + 2.5;
+    let bx = sx + 4.5;
+    let by = sy + 4.5;
+    const box = { x: bx - 2, y: by - 0.5, w: bw, h: bh };
+    let n = 0;
+    while (this._taken.some((o) => boxesOverlap(box, o)) && n < 3) {
+      by += bh + 1.5;
+      box.y = by - 0.5;
+      n += 1;
+    }
+    if (this._taken.some((o) => boxesOverlap(box, o)) || by + bh > sy + sh - 1.5) return;
+    this._taken.push(box);
+
+    ctx.fillStyle = `rgba(${TH.knock},0.9)`;
+    ctx.fillRect(box.x, box.y, bw, bh);
+    ctx.fillStyle = `rgba(${TH.line},${alpha})`;
+    ctx.textBaseline = "top";
+    ctx.fillText(t, bx, by);
+    if (accent) {
+      ctx.fillStyle = `rgba(${TH.accent},0.92)`;
+      ctx.fillText(accent, bx + m + 5, by);
+    }
   }
 
   draw() {
     const ctx = this.ctx;
-    ctx.fillStyle = "#12131a";
+    const TH = this.theme;
+
+    ctx.fillStyle = TH.paper;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
+    ctx.putImageData(this._grain(), 0, 0);
 
-    this._drawWings(ctx);
-    this._drawArcs(ctx);
-    this._drawDrawers(ctx);
-    if (this.zoomLevel() !== "far") this._drawClusterLabels(ctx);
-  }
-
-  _drawWings(ctx) {
+    ctx.strokeStyle = `rgba(${TH.line},0.32)`;
     ctx.lineWidth = 1;
-    this.meta.wings.forEach((wing) => {
-      const [x, y] = this.worldToScreen(wing.rect[0], wing.rect[1]);
-      const w = wing.rect[2] * this.scale;
-      const h = wing.rect[3] * this.scale;
-      ctx.strokeStyle = "#2c2f3d";
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = "#6b7089";
-      ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
-      ctx.fillText(`${wing.name} · ${wing.count}`, x + 6, y + 16);
+    ctx.strokeRect(18.5, 18.5, this.viewW - 37, this.viewH - 37);
+    ctx.strokeStyle = `rgba(${TH.line},0.12)`;
+    ctx.strokeRect(23.5, 23.5, this.viewW - 47, this.viewH - 47);
+    ctx.textAlign = "left";
+
+    this.meta.wings.forEach((g) => this._poche(g.rect, 3.0, `rgba(${TH.line},${TH.wing})`));
+    this.meta.halls.forEach((g) => this._poche(g.rect, 1.5, `rgba(${TH.line},${TH.hall})`));
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = `rgba(${TH.line},${TH.room})`;
+    this.meta.chambers.forEach((c) => {
+      const [sx, sy] = this.worldToScreen(c.rect[0], c.rect[1]);
+      ctx.strokeRect(sx + 0.25, sy + 0.25, c.rect[2] * this.scale - 0.5, c.rect[3] * this.scale - 0.5);
     });
-  }
 
-  _drawArcs(ctx) {
-    if (!this.activeArcs.length) return;
-    ctx.strokeStyle = "rgba(122,162,247,0.5)";
-    ctx.lineWidth = 1;
-    this.activeArcs.forEach(([a, b]) => {
-      const from = this.meta.drawers[a];
-      const to = this.meta.drawers[b];
-      if (!from || !to) return;
-      const [x1, y1] = this.worldToScreen(from.x, from.y);
-      const [x2, y2] = this.worldToScreen(to.x, to.y);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-    });
-  }
+    // Radius is capped both ends: floor so a far-zoomed dot stays visible,
+    // ceiling so a near-zoomed chamber doesn't turn into overlapping blobs.
+    const radius = Math.min(Math.max(0.8, 1.35 * this.scale), 4.2);
+    this.meta.drawers.forEach((d, i) => {
+      const [x, y] = this.worldToScreen(d.x, d.y);
+      if (x < -6 || y < -6 || x > this.viewW + 6 || y > this.viewH + 6) return;
 
-  _drawDrawers(ctx) {
-    const level = this.zoomLevel();
-    const radius = level === "far" ? 1.2 : level === "mid" ? 2.4 : 4;
-    this.meta.drawers.forEach((drawer, index) => {
-      const [x, y] = this.worldToScreen(drawer.x, drawer.y);
-      if (x < -20 || y < -20 || x > this.viewW + 20 || y > this.viewH + 20) return;
+      if (this.highlighted.has(i)) {
+        ctx.fillStyle = `rgba(${TH.accent},0.95)`;
+        ctx.beginPath();
+        ctx.arc(x, y, radius + 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (this.dimmed.has(i)) {
+        ctx.fillStyle = `rgba(${TH.line},${TH.dim})`;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const v = Math.round(TH.dot0 + this._t[i] * TH.dotSpan);
+        ctx.fillStyle = `rgb(${v},${v},${v - 5})`;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
-      const isDimmed = this.dimmed.has(index);
-      ctx.globalAlpha = isDimmed ? 0.08 : this.highlighted.has(index) ? 1 : 0.75;
-      ctx.fillStyle = this._drawerColour(drawer);
-      ctx.beginPath();
-      ctx.arc(x, y, index === this.selected ? radius + 3 : radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (index === this.selected) {
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2;
+      if (i === this.selected) {
+        ctx.strokeStyle = `rgb(${TH.accent})`;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(x, y, radius + 4.5, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.lineWidth = 0.5;
       }
     });
-    ctx.globalAlpha = 1;
-  }
 
-  _drawClusterLabels(ctx) {
-    ctx.fillStyle = "#c3c7d6";
-    ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    this.meta.clusters.forEach((cluster) => {
-      const [x, y] = this.worldToScreen(cluster.centroid[0], cluster.centroid[1]);
-      if (x < 0 || y < 0 || x > this.viewW || y > this.viewH) return;
-      ctx.fillText(cluster.label, x, y - 8);
-    });
-    ctx.textAlign = "left";
+    // Labels grow with the zoom they annotate — a fixed pixel size reads as
+    // microscopic once a chamber fills the screen. Clamped so they never
+    // dominate. Importance order: wings, then halls, then chambers.
+    this._taken = [];
+    const zf = Math.min(Math.max(this.scale / this.baseScale, 1), 3.4);
+    const up = (a) => Math.min(a + (zf - 1) * 0.16, 0.95);
+
+    this.meta.wings.forEach((g) => this._tag(g.name, g.rect, 8.0 * zf, 0.95, 2.2 * zf, String(g.count)));
+    if (this.scale > this.baseScale * 0.75) {
+      this.meta.halls.forEach((g) => {
+        if (g.rect[2] * this.scale > 66) this._tag(g.name, g.rect, 6.6 * zf, up(0.62), 1.4 * zf, null);
+      });
+    }
+    if (this.scale > this.baseScale * 0.95) {
+      this.meta.chambers.forEach((c) => {
+        if (c.rect[2] * this.scale > 44) {
+          this._tag(c.name, c.rect, 5.6 * zf, up(0.42), 0.9 * zf, c.capped ? String(c.count) : null);
+        }
+      });
+    }
+    ctx.letterSpacing = "0px";
   }
 };
