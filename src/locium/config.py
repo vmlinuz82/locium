@@ -30,6 +30,7 @@ class Tuning:
     gutter_fraction: float = 0.15
     preview_chars: int = 200
     seed: int = 42
+    dot_cap: int = 300
 
 
 TUNING = Tuning()

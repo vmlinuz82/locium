@@ -1,8 +1,11 @@
 """Orchestrate the build: palace copy in, index artifact out.
 
-The pipeline is snapshot -> extract -> layout -> cluster -> arcs -> quantise
--> write. Layout is the subtle part: wings that already have coordinates only
-get their *new* drawers placed, so nothing an existing locus depends on moves.
+The pipeline is snapshot -> extract -> layout -> arcs -> quantise -> write.
+Layout walks wing -> hall -> chamber, positioning each drawer with
+pack_chamber. Wings already in the index keep their persisted rectangle and
+drawers already in the index keep their exact coordinates, so nothing an
+existing locus depends on moves on an ordinary rebuild. Only --refit moves
+anything.
 """
 
 import shutil
@@ -10,20 +13,21 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
-
 from .arcs import compute_arcs
-from .clusters import cluster_labels
-from .config import CANVAS_H, CANVAS_W, TUNING, Tuning
+from .config import TUNING, Tuning
 from .extract import palace_mtime, read_drawers, snapshot_palace
+from .footprint import building_footprint, subdivide
 from .index import index_exists, read_meta, write_index
-from .layout import umap_layout
 from .models import Rect, make_preview
+from .packing import pack_chamber
 from .quantize import quantize
-from .stability import merge_coords, place_into_existing
-from .treemap import carve_gutter, gutter_rect, wing_rects
+from .stability import merge_coords
 
-CANVAS = Rect(0.0, 0.0, CANVAS_W, CANVAS_H)
+PAD_HALL, PAD_CHAMBER = 8.5, 5.0
+
+
+def _rect_list(rect: Rect) -> list[float]:
+    return [rect.x, rect.y, rect.w, rect.h]
 
 
 def _previous_state(index_path: Path) -> tuple[dict, dict]:
@@ -36,45 +40,18 @@ def _previous_state(index_path: Path) -> tuple[dict, dict]:
     return coords, rects
 
 
-def _resolve_rects(
-    counts: dict[str, int], previous_rects: dict[str, Rect], refit: bool, tuning: Tuning
+def _resolve_wing_rects(
+    counts: dict[str, int], previous_rects: dict[str, Rect], refit: bool
 ) -> dict[str, Rect]:
-    """Keep known wings where they are; carve new ones out of the gutter."""
+    """Keep known wings where they are; place new ones with building_footprint."""
     if refit or not previous_rects:
-        return wing_rects(counts, CANVAS, tuning.gutter_fraction)
+        return building_footprint(counts)
 
     known = {name: rect for name, rect in previous_rects.items() if name in counts}
-    fresh = {name: count for name, count in counts.items() if name not in known}
+    fresh = {name: counts[name] for name in counts if name not in known}
     if fresh:
-        known.update(carve_gutter(fresh, gutter_rect(CANVAS, tuning.gutter_fraction)))
+        known.update(building_footprint(fresh))
     return known
-
-
-def _layout_wing(
-    vectors: np.ndarray,
-    ids: list[str],
-    rect: Rect,
-    previous_coords: dict[str, list[float]],
-    tuning: Tuning,
-) -> np.ndarray:
-    """Position one wing's drawers, reusing placements wherever they exist."""
-    placed_mask = np.array([did in previous_coords for did in ids])
-    if not placed_mask.any():
-        return umap_layout(vectors, rect, tuning.seed, tuning.wing_umap_threshold)
-
-    coords = np.zeros((len(ids), 2), dtype=np.float32)
-    coords[placed_mask] = np.array(
-        [previous_coords[did] for did, keep in zip(ids, placed_mask) if keep],
-        dtype=np.float32,
-    )
-    if (~placed_mask).any():
-        coords[~placed_mask] = place_into_existing(
-            vectors[~placed_mask],
-            vectors[placed_mask],
-            coords[placed_mask],
-            seed=tuning.seed,
-        )
-    return coords
 
 
 def build_index(
@@ -93,40 +70,67 @@ def build_index(
 
     previous_coords, previous_rects = _previous_state(index_path)
 
-    by_wing: dict[str, list[int]] = defaultdict(list)
+    by_wing: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for position, drawer in enumerate(drawers):
-        by_wing[drawer.wing].append(position)
+        by_wing[drawer.wing][drawer.hall].append(position)
 
-    counts = {wing: len(rows) for wing, rows in by_wing.items()}
-    rects = _resolve_rects(counts, previous_rects, refit, tuning)
+    wing_counts = {w: sum(len(v) for v in halls.values()) for w, halls in by_wing.items()}
+    wing_rects = _resolve_wing_rects(wing_counts, previous_rects, refit)
 
+    wings_meta: list[dict] = []
+    halls_meta: list[dict] = []
+    chambers_meta: list[dict] = []
     fresh_coords: dict[str, list[float]] = {}
-    clusters: list[dict] = []
-    assignments = np.full(len(drawers), -1, dtype=int)
 
-    for wing, rows in by_wing.items():
-        wing_vectors = vectors[rows]
-        wing_ids = [drawers[i].id for i in rows]
-        placed = _layout_wing(
-            wing_vectors,
-            wing_ids,
-            rects[wing],
-            {} if refit else previous_coords,
-            tuning,
+    for wing, wing_rect in wing_rects.items():
+        wings_meta.append(
+            {"name": wing, "rect": _rect_list(wing_rect), "count": wing_counts[wing]}
         )
-        for position, row in enumerate(rows):
-            fresh_coords[drawers[row].id] = [
-                float(placed[position][0]),
-                float(placed[position][1]),
-            ]
+        hall_counts = {h: len(rows) for h, rows in by_wing[wing].items()}
+        for hall, hall_rect in subdivide(hall_counts, wing_rect, PAD_HALL).items():
+            halls_meta.append(
+                {
+                    "name": hall,
+                    "wing": wing,
+                    "rect": _rect_list(hall_rect),
+                    "count": hall_counts[hall],
+                }
+            )
+            rows_by_room: dict[str, list[int]] = defaultdict(list)
+            for row in by_wing[wing][hall]:
+                rows_by_room[drawers[row].room].append(row)
 
-        wing_clusters, wing_assignments = cluster_labels(
-            placed, [drawers[i].text for i in rows]
-        )
-        for cluster in wing_clusters:
-            clusters.append({"wing": wing, **cluster})
-        for position, row in enumerate(rows):
-            assignments[row] = wing_assignments[position]
+            room_counts = {r: len(v) for r, v in rows_by_room.items()}
+            for room, chamber in subdivide(room_counts, hall_rect, PAD_CHAMBER).items():
+                rows = rows_by_room[room]
+                shown = rows[: tuning.dot_cap]
+                chambers_meta.append(
+                    {
+                        "name": room,
+                        "wing": wing,
+                        "hall": hall,
+                        "rect": _rect_list(chamber),
+                        "count": len(rows),
+                        "capped": len(rows) > tuning.dot_cap,
+                    }
+                )
+                kept = (
+                    [
+                        previous_coords[drawers[r].id]
+                        for r in shown
+                        if drawers[r].id in previous_coords
+                    ]
+                    if not refit
+                    else []
+                )
+                points = pack_chamber(
+                    len(shown),
+                    chamber,
+                    tuning.seed,
+                    placed=[tuple(p) for p in kept] or None,
+                )
+                for row, (px, py) in zip(shown, points):
+                    fresh_coords[drawers[row].id] = [round(px, 1), round(py, 1)]
 
     coords = merge_coords(previous_coords, fresh_coords, refit)
 
@@ -140,20 +144,19 @@ def build_index(
             {
                 "id": drawer.id,
                 "wing": drawer.wing,
+                "hall": drawer.hall,
                 "room": drawer.room,
                 "date": drawer.created_at,
                 "x": coords[drawer.id][0],
                 "y": coords[drawer.id][1],
                 "preview": make_preview(drawer.text, tuning.preview_chars),
-                "cluster": int(assignments[position]),
             }
-            for position, drawer in enumerate(drawers)
+            for drawer in drawers
+            if drawer.id in coords
         ],
-        "wings": [
-            {"name": wing, "rect": [r.x, r.y, r.w, r.h], "count": counts[wing]}
-            for wing, r in rects.items()
-        ],
-        "clusters": clusters,
+        "wings": wings_meta,
+        "halls": halls_meta,
+        "chambers": chambers_meta,
         "arcs": compute_arcs(
             vectors,
             [d.wing for d in drawers],

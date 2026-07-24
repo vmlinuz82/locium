@@ -34,12 +34,11 @@ def find_free_port(preferred: int) -> int:
 def _build(args: argparse.Namespace) -> int:
     from .build import build_index
     from .extract import PalaceNotFound
-    from .treemap import RefitRequired
 
     palace = resolve_palace(args.palace)
     try:
         meta = build_index(palace, Path(args.index), refit=args.refit)
-    except (PalaceNotFound, RefitRequired) as exc:
+    except PalaceNotFound as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

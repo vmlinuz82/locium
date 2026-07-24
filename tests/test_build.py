@@ -5,7 +5,6 @@ from locium.build import build_index
 from locium.config import Tuning
 from locium.extract import PalaceNotFound
 from locium.index import read_meta, read_vectors
-from locium.treemap import RefitRequired
 
 
 def _add_drawers(palace, ids, wing):
@@ -84,15 +83,18 @@ def test_refit_is_allowed_to_move_drawers(fake_palace, tmp_path):
     assert meta["drawer_count"] == 21
 
 
-def test_a_new_wing_lands_in_the_gutter(fake_palace, tmp_path):
+def test_a_new_wing_is_placed_without_disturbing_existing_wings(fake_palace, tmp_path):
     index_path = tmp_path / "idx"
-    build_index(fake_palace, index_path)
+    before = build_index(fake_palace, index_path)
+    before_rects = {w["name"]: w["rect"] for w in before["wings"]}
+
     _add_drawers(fake_palace, ["g1", "g2"], "gamma")
     meta = build_index(fake_palace, index_path)
 
-    gutter_top = 1000.0 * (1.0 - 0.15)
-    gamma = next(w for w in meta["wings"] if w["name"] == "gamma")
-    assert gamma["rect"][1] >= gutter_top - 1e-6
+    assert any(w["name"] == "gamma" for w in meta["wings"])
+    for w in meta["wings"]:
+        if w["name"] in before_rects:
+            assert w["rect"] == before_rects[w["name"]]
 
 
 def test_meta_records_provenance(fake_palace, tmp_path):
@@ -103,35 +105,6 @@ def test_meta_records_provenance(fake_palace, tmp_path):
     assert meta["vector_dim"] == 8
 
 
-def test_gutter_fraction_tuning_is_honoured(fake_palace, tmp_path):
-    """Verify that custom gutter_fraction in Tuning is respected for wing sizing."""
-    # Build with default tuning and record where new wings land in the gutter
-    index_path_default = tmp_path / "default"
-    build_index(fake_palace, index_path_default)
-    _add_drawers(fake_palace, ["new_default"], "new_wing_default")
-    meta_default = build_index(fake_palace, index_path_default)
-    default_wing = next(w for w in meta_default["wings"] if w["name"] == "new_wing_default")
-    default_y = default_wing["rect"][1]
-
-    # Build with custom gutter_fraction=0.3 and see where new wings land
-    index_path_custom = tmp_path / "custom"
-    custom_tuning = Tuning(gutter_fraction=0.3)
-    build_index(fake_palace, index_path_custom, tuning=custom_tuning)
-    _add_drawers(fake_palace, ["new_custom"], "new_wing_custom")
-    meta_custom = build_index(fake_palace, index_path_custom, tuning=custom_tuning)
-    custom_wing = next(w for w in meta_custom["wings"] if w["name"] == "new_wing_custom")
-    custom_y = custom_wing["rect"][1]
-
-    # With different gutter fractions, new wings should be placed at different y positions
-    # Default: gutter at 1000 * (1 - 0.15) = 850
-    # Custom: gutter at 1000 * (1 - 0.3) = 700
-    # The custom gutter is lower, so new wings should land at a smaller y value
-    assert custom_y < default_y, (
-        f"Wing with gutter_fraction=0.3 at y={custom_y} should be lower than "
-        f"wing with default gutter_fraction=0.15 at y={default_y}"
-    )
-
-
 def test_build_index_raises_palace_not_found_when_palace_missing(tmp_path):
     """Verify build_index raises PalaceNotFound (not bare FileNotFoundError) for missing palace."""
     missing_palace = tmp_path / "nonexistent"
@@ -140,3 +113,41 @@ def test_build_index_raises_palace_not_found_when_palace_missing(tmp_path):
         build_index(missing_palace, index_path)
     assert "not found" in str(exc_info.value)
     assert str(missing_palace) in str(exc_info.value)
+
+
+def test_meta_carries_the_building(fake_palace, tmp_path):
+    meta = build_index(fake_palace, tmp_path / "idx")
+    assert meta["wings"] and meta["halls"] and meta["chambers"]
+    for chamber in meta["chambers"]:
+        assert {"name", "wing", "hall", "rect", "count", "capped"} <= set(chamber)
+
+
+def test_every_drawer_sits_inside_its_chamber(fake_palace, tmp_path):
+    meta = build_index(fake_palace, tmp_path / "idx")
+    boxes = {
+        (c["wing"], c["hall"], c["name"]): c["rect"] for c in meta["chambers"]
+    }
+    for d in meta["drawers"]:
+        x, y, w, h = boxes[(d["wing"], d["hall"], d["room"])]
+        assert x <= d["x"] <= x + w
+        assert y <= d["y"] <= y + h
+
+
+def test_chamber_over_the_cap_is_marked(fake_palace, tmp_path):
+    meta = build_index(fake_palace, tmp_path / "idx", tuning=Tuning(dot_cap=1))
+    assert any(c["capped"] for c in meta["chambers"])
+
+
+def test_capped_chamber_still_reports_its_true_count(fake_palace, tmp_path):
+    # Keyed by the full (wing, hall, name) triple, not name alone: room names
+    # are shared across wings/halls (e.g. two unrelated "technical" chambers),
+    # so keying by name alone would sum drawers from different chambers.
+    meta = build_index(fake_palace, tmp_path / "idx", tuning=Tuning(dot_cap=1))
+    capped = [c for c in meta["chambers"] if c["capped"]]
+    drawn = {(c["wing"], c["hall"], c["name"]): 0 for c in capped}
+    for d in meta["drawers"]:
+        key = (d["wing"], d["hall"], d["room"])
+        if key in drawn:
+            drawn[key] += 1
+    for c in capped:
+        assert c["count"] > drawn[(c["wing"], c["hall"], c["name"])]
