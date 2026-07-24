@@ -1,7 +1,7 @@
 """The index artifact: everything the viewer needs, and nothing live.
 
 Metadata is JSON so it stays readable and debuggable; only the vectors are
-binary. The pair is committed as one unit: both files are written into a
+binary. The artifact is committed as one unit: every file is written into a
 staging directory beside the target, then that staging directory is swapped
 into place with a single rename. A crash at any point before that rename
 leaves the previous artifact (or nothing) in place; a crash after it leaves
@@ -18,14 +18,19 @@ import numpy as np
 
 META_NAME = "meta.json"
 VECTORS_NAME = "vectors.bin"
+TEXTS_NAME = "texts.json"
 
 
-def write_index(path: Path, meta: dict, vectors: np.ndarray) -> None:
-    """Write meta.json and vectors.bin as one atomic unit.
+def write_index(
+    path: Path, meta: dict, vectors: np.ndarray, texts: dict[str, str] | None = None
+) -> None:
+    """Write meta.json, vectors.bin and (optionally) texts.json as one atomic unit.
 
-    Both files are staged in a sibling ``<name>.new`` directory and only then
+    All files are staged in a sibling ``<name>.new`` directory and only then
     swapped into place, so readers always see either the complete old
-    artifact or the complete new one, never a mix of the two.
+    artifact or the complete new one, never a mix of the two. ``texts`` is
+    optional so callers that don't have full drawer text (e.g. tests) can
+    omit it without producing a texts.json.
     """
     if vectors.dtype != np.int8:
         raise ValueError(f"vectors must be int8, got {vectors.dtype}")
@@ -51,6 +56,8 @@ def write_index(path: Path, meta: dict, vectors: np.ndarray) -> None:
 
     (staging / META_NAME).write_text(json.dumps(meta, indent=2), encoding="utf-8")
     (staging / VECTORS_NAME).write_bytes(np.ascontiguousarray(vectors).tobytes())
+    if texts is not None:
+        (staging / TEXTS_NAME).write_text(json.dumps(texts, indent=2), encoding="utf-8")
 
     if old.exists():
         shutil.rmtree(old)
@@ -94,3 +101,19 @@ def read_vectors(path: Path, count: int, dim: int) -> np.ndarray:
 
 def index_exists(path: Path) -> bool:
     return (path / META_NAME).exists() and (path / VECTORS_NAME).exists()
+
+
+def read_text(path: Path, drawer_id: str) -> str | None:
+    """Read one drawer's full text from texts.json.
+
+    Tolerates a missing or malformed texts.json by returning None -- the
+    map is a nice-to-have alongside meta.json's preview, not a required
+    part of the artifact.
+    """
+    try:
+        texts = json.loads((path / TEXTS_NAME).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(texts, dict):
+        return None
+    return texts.get(drawer_id)

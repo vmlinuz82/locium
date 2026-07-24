@@ -166,5 +166,6 @@ def build_index(
         ),
     }
 
-    write_index(index_path, meta, quantize(vectors))
+    texts = {drawer.id: drawer.text for drawer in drawers if drawer.id in coords}
+    write_index(index_path, meta, quantize(vectors), texts)
     return meta

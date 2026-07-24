@@ -9,9 +9,11 @@ import pytest
 
 from locium.index import (
     META_NAME,
+    TEXTS_NAME,
     VECTORS_NAME,
     index_exists,
     read_meta,
+    read_text,
     read_vectors,
     write_index,
 )
@@ -181,3 +183,36 @@ def test_read_vectors_rejects_byte_length_mismatch(tmp_path):
 
     with pytest.raises(ValueError, match="8.*5|5.*8"):
         read_vectors(tmp_path / "idx", 2, 4)
+
+
+def test_texts_are_written_inside_the_staged_directory(tmp_path):
+    texts = {"d1": "full text for d1", "d2": "full text for d2"}
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), texts)
+    assert [p.name for p in sorted((tmp_path / "idx").iterdir())] == [
+        META_NAME,
+        TEXTS_NAME,
+        VECTORS_NAME,
+    ]
+
+
+def test_read_text_round_trips(tmp_path):
+    texts = {"d1": "full text for d1", "d2": "full text for d2"}
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), texts)
+    assert read_text(tmp_path / "idx", "d1") == "full text for d1"
+
+
+def test_read_text_returns_none_for_unknown_id(tmp_path):
+    texts = {"d1": "full text for d1"}
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), texts)
+    assert read_text(tmp_path / "idx", "does-not-exist") is None
+
+
+def test_read_text_returns_none_when_texts_file_missing(tmp_path):
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8))
+    assert read_text(tmp_path / "idx", "d1") is None
+
+
+def test_read_text_returns_none_on_malformed_json(tmp_path):
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), {"d1": "hi"})
+    (tmp_path / "idx" / TEXTS_NAME).write_text("not json", encoding="utf-8")
+    assert read_text(tmp_path / "idx", "d1") is None

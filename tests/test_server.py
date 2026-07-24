@@ -117,3 +117,16 @@ def test_missing_index_refuses_to_start(tmp_path, fake_palace):
 
     with pytest.raises(FileNotFoundError, match="locium build"):
         create_app(tmp_path / "absent", fake_palace)
+
+
+def test_drawer_endpoint_returns_full_text(client):
+    meta = client.get("/api/index").json()
+    drawer_id = meta["drawers"][0]["id"]
+    body = client.get(f"/api/drawer/{drawer_id}").json()
+    assert body["id"] == drawer_id
+    assert {"wing", "hall", "room", "date", "text"} <= set(body)
+    assert len(body["text"]) >= len(meta["drawers"][0]["preview"])
+
+
+def test_unknown_drawer_is_404(client):
+    assert client.get("/api/drawer/does-not-exist").status_code == 404

@@ -13,7 +13,7 @@ from pydantic import BaseModel, field_validator
 
 from . import tunnels as tunnel_api
 from .extract import palace_mtime
-from .index import VECTORS_NAME, index_exists, read_meta
+from .index import VECTORS_NAME, index_exists, read_meta, read_text
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -66,6 +66,19 @@ def create_app(index_path: Path, palace: Path) -> FastAPI:
         from .embed import embed_query
 
         return {"vector": embed_query(request.query).tolist()}
+
+    @app.get("/api/drawer/{drawer_id}")
+    def get_drawer(drawer_id: str) -> dict:
+        meta = read_meta(index_path)
+        row = next((d for d in meta["drawers"] if d["id"] == drawer_id), None)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"no drawer {drawer_id}")
+        return {
+            "id": drawer_id,
+            "wing": row["wing"], "hall": row["hall"], "room": row["room"],
+            "date": row["date"], "source_file": row.get("source_file", ""),
+            "text": read_text(index_path, drawer_id) or row["preview"],
+        }
 
     @app.get("/api/tunnels")
     def get_tunnels() -> dict:
