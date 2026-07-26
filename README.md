@@ -8,6 +8,8 @@ between them.
 The name comes from *loci* — the classical method of loci, where memories are
 placed in imagined locations. Pronounced LOH-see-um.
 
+![Locium draws a MemPalace store as an architect's floorplan — a connected building of wings, halls and chambers, every memory a dot in its room](docs/img/floorplan.png)
+
 ## Install
 
     python -m venv .venv
@@ -52,8 +54,18 @@ that produced the stored vectors and additionally matches wing/hall/room
 names literally; matches go accent-coloured, everything else dims. The map
 never moves for a search — no drawer's coordinate changes.
 
-A chamber past `dot_cap` drawers stops adding dots (its true count is still
-shown), so one enormous room can't turn the map into an unreadable smear.
+The hits are also connected by relevance-weighted lines. A search draws a
+*chain* — a path through the hits from strongest to weakest, each segment warm
+and solid when the match is strong, cooling and going dotted below a similarity
+threshold, so the line itself reads as the relevance gradient. Clicking a
+drawer instead draws a *star* — rays from that drawer to each of its nearest
+neighbours, in the same colour language.
+
+![A search draws a relevance chain through the hits — solid for strong matches, dotted as relevance fades](docs/img/search-chain.png)
+
+Every drawer is drawn by default, so every hit has a dot. A positive `dot_cap`
+can be set to stop a chamber past N drawers from adding more dots (its true
+count is still shown) if you'd rather keep the densest rooms readable.
 
 ## Stable coordinates
 
