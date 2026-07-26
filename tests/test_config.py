@@ -12,11 +12,11 @@ def test_tuning_matches_spec_defaults():
     assert TUNING.arc_max_distance == 0.45
     assert TUNING.arcs_per_drawer == 3
     assert TUNING.arc_global_cap == 20000
-    assert TUNING.knn_k == 10
-    assert TUNING.wing_umap_threshold == 10
-    assert TUNING.gutter_fraction == 0.15
     assert TUNING.preview_chars == 200
     assert TUNING.seed == 42
+    assert TUNING.dot_cap == 300
+    assert TUNING.pad_hall == 8.5
+    assert TUNING.pad_chamber == 5.0
 
 
 def test_tuning_is_immutable():

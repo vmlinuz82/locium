@@ -12,22 +12,12 @@ DEFAULT_INDEX = Path.home() / ".locium" / "index"
 
 COLLECTION_NAME = "mempalace_drawers"
 
-# The layout canvas is in abstract units; the viewer scales it to the viewport.
-CANVAS_W = 1000.0
-CANVAS_H = 1000.0
-
-# A wing rectangle narrower than this in either dimension is unusable.
-MIN_WING_SIDE = 20.0
-
 
 @dataclass(frozen=True)
 class Tuning:
     arc_max_distance: float = 0.45
     arcs_per_drawer: int = 3
     arc_global_cap: int = 20000
-    knn_k: int = 10
-    wing_umap_threshold: int = 10
-    gutter_fraction: float = 0.15
     preview_chars: int = 200
     seed: int = 42
     dot_cap: int = 300

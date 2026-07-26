@@ -15,11 +15,6 @@ import squarify
 
 from .models import Rect
 
-
-class EmptyBlock(Exception):
-    """Raised when a block would be left with no wings, erasing its step."""
-
-
 # index 0 is the core; the rest each share a full edge with it
 BLOCKS = [
     Rect(168.0, 296.0, 496.0, 424.0),   # core
