@@ -1,0 +1,207 @@
+/* Ported from the approved prototype at .superpowers/sdd/prototype-castle.py
+   (the `HTML` string's embedded <style> block). Ink on paper in light mode,
+   light linework on a dark ground in dark mode — same palette the renderer's
+   THEMES table uses, so JS and CSS never disagree about a colour. */
+
+:root {
+  --paper: #e9e7e1;
+  --ink: #15150f;
+  --accent: #a8331a;
+  --knock: 233, 231, 225;
+  --line: 21, 21, 15;
+}
+
+:root[data-theme="dark"] {
+  --paper: #15171b;
+  --ink: #d6d1c4;
+  --accent: #e08a5c;
+  --knock: 21, 23, 27;
+  --line: 214, 209, 196;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--paper);
+  font: 400 9px/1.8 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--ink);
+  transition: background 0.2s, color 0.2s;
+}
+
+#c {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+#c.drag {
+  cursor: grabbing;
+}
+
+.c {
+  position: fixed;
+  z-index: 5;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+#t {
+  top: 30px;
+  left: 34px;
+}
+#t b {
+  display: block;
+  font-size: 16px;
+  letter-spacing: 0.4em;
+  line-height: 1.2;
+  margin-bottom: 6px;
+}
+#t span {
+  opacity: 0.48;
+}
+#lg {
+  right: 34px;
+  top: 30px;
+  text-align: right;
+  opacity: 0.6;
+}
+#st {
+  right: 34px;
+  bottom: 30px;
+  text-align: right;
+  opacity: 0.42;
+}
+#sc {
+  left: 34px;
+  bottom: 30px;
+  opacity: 0.55;
+}
+#sc i {
+  display: inline-block;
+  width: 88px;
+  height: 3px;
+  margin: 0 9px;
+  vertical-align: middle;
+  background: linear-gradient(90deg, #c9c6bd, #15150f);
+}
+
+#q {
+  position: fixed;
+  left: 34px;
+  top: 104px;
+  z-index: 6;
+  width: 236px;
+  background: rgba(var(--knock), 0.94);
+  border: 1px solid rgba(var(--line), 0.42);
+  padding: 7px 9px;
+  font: inherit;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  outline: none;
+}
+#q:focus {
+  border-color: var(--accent);
+}
+#qn {
+  position: fixed;
+  left: 34px;
+  top: 134px;
+  z-index: 6;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+#zc {
+  position: fixed;
+  left: 34px;
+  top: 164px;
+  z-index: 6;
+  display: flex;
+  gap: 5px;
+}
+#zc button {
+  font: inherit;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: rgba(var(--knock), 0.94);
+  border: 1px solid rgba(var(--line), 0.36);
+  color: var(--ink);
+  padding: 4px 9px;
+  cursor: pointer;
+}
+#zc button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#p {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 376px;
+  z-index: 7;
+  background: rgba(var(--knock), 0.975);
+  border-left: 1px solid rgba(var(--line), 0.5);
+  padding: 30px 28px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#p.on {
+  transform: none;
+}
+#p h3 {
+  font: 400 11px/1.5 inherit;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+#p .meta {
+  opacity: 0.55;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+#p .rule {
+  height: 1px;
+  background: rgba(var(--line), 0.28);
+  margin: 14px 0;
+}
+#p .body {
+  font: 400 11px/1.85 ui-monospace, Menlo, monospace;
+  letter-spacing: 0.01em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-transform: none;
+}
+#p .src {
+  margin-top: 16px;
+  opacity: 0.4;
+  letter-spacing: 0.12em;
+  word-break: break-all;
+}
+#x {
+  position: absolute;
+  right: 22px;
+  top: 24px;
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 13px;
+}
+#x:hover {
+  opacity: 1;
+  color: var(--accent);
+}
