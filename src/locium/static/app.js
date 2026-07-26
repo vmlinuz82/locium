@@ -20,6 +20,12 @@
 (() => {
   const $ = (id) => document.getElementById(id);
 
+  // Relevance chain: how many hits to thread, and the minimum cosine
+  // similarity a hit needs to join it (weaker matches are excluded so the
+  // chain doesn't zig-zag through noise).
+  const CHAIN_MAX = 16;
+  const CHAIN_FLOOR = 0.3;
+
   /* ---- DOM construction ------------------------------------------------
      Drawer text and preview strings are raw palace content and may contain
      "<", "</script>" etc. (see prototype-castle.py's note on this). Every
@@ -187,6 +193,7 @@
 
     renderer.highlighted = new Set([index, ...neighbours.map((n) => n.index)]);
     renderer.dimmed = new Set();
+    renderer.chain = []; // the relevance chain belongs to search, not the wander
 
     $("ph").textContent = `${record.wing} / ${record.hall} / ${record.room}`;
     $("pm").textContent = record.date || "undated";
@@ -336,11 +343,11 @@
     const scores = window.Knn.similarities(Float32Array.from(vector));
 
     const drawers = state.meta.drawers;
-    const semantic = drawers
-      .map((_, i) => ({ index: i, distance: 1 - scores[i] }))
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 40)
-      .map((r) => r.index);
+    // Rank every drawn drawer by relevance (cosine similarity), strongest first.
+    const ranked = drawers
+      .map((_, i) => ({ index: i, rel: scores[i] }))
+      .sort((a, b) => b.rel - a.rel);
+    const semantic = ranked.slice(0, 40).map((r) => r.index);
 
     const needle = trimmed.toLowerCase();
     const matches = new Set(semantic);
@@ -354,6 +361,10 @@
       }
     });
 
+    // The relevance chain: a path through the strongest genuine hits, in rank
+    // order. Weak noise is excluded by the floor; the renderer dots-out any
+    // remaining segment below its own threshold.
+    renderer.chain = ranked.filter((r) => r.rel >= CHAIN_FLOOR).slice(0, CHAIN_MAX);
     renderer.highlighted = matches;
     renderer.dimmed = new Set(drawers.map((_, i) => i).filter((i) => !matches.has(i)));
     $("qn").textContent = `${matches.size} of ${drawers.length} drawers`;
@@ -364,6 +375,7 @@
   function clearSearch() {
     renderer.dimmed = new Set();
     renderer.highlighted = new Set();
+    renderer.chain = [];
     $("q").value = "";
     $("qn").style.opacity = 0;
     renderer.draw();

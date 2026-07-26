@@ -82,6 +82,36 @@ test("search dims non-matches without moving any dot", async ({ page }) => {
   expect(highlightedSize).toBeGreaterThan(0);
 });
 
+test("search builds a relevance chain, ranked and cleared correctly", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(() => window.__locium.search("technical architecture notes"));
+  await page.waitForFunction(() => window.__locium.renderer.highlighted.size > 0);
+
+  const chain = await page.evaluate(() =>
+    window.__locium.renderer.chain.map((c) => ({ index: c.index, rel: c.rel }))
+  );
+  // Every hit clears the floor, the chain is capped, and it is ordered by
+  // relevance strongest-first (this is what the connecting lines thread through).
+  expect(chain.length).toBeLessThanOrEqual(16);
+  for (const c of chain) {
+    expect(c.rel).toBeGreaterThanOrEqual(0.3);
+    expect(c.index).toBeGreaterThanOrEqual(0);
+    expect(c.index).toBeLessThan(await page.evaluate(() => window.__locium.state.meta.drawers.length));
+  }
+  for (let i = 1; i < chain.length; i += 1) {
+    expect(chain[i - 1].rel).toBeGreaterThanOrEqual(chain[i].rel);
+  }
+
+  // Selecting a drawer is the wander, not a search — the chain must clear.
+  await page.evaluate(() => window.__locium.select(0));
+  expect(await page.evaluate(() => window.__locium.renderer.chain.length)).toBe(0);
+
+  // And a fresh search then a clear leaves no chain behind.
+  await page.evaluate(() => window.__locium.search("technical"));
+  await page.evaluate(() => window.__locium.search(""));
+  expect(await page.evaluate(() => window.__locium.renderer.chain.length)).toBe(0);
+});
+
 test("clearing search restores every drawer", async ({ page }) => {
   await ready(page);
   await page.evaluate(() => window.__locium.search("wing_a"));

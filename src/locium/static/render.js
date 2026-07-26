@@ -42,6 +42,9 @@ window.Renderer = class Renderer {
 
     this.dimmed = new Set();
     this.highlighted = new Set();
+    // Ordered relevance chain drawn between search hits, strongest first.
+    // Each entry: { index, rel } where rel is cosine similarity 0..1.
+    this.chain = [];
     this.selected = null;
 
     this.themeName = "light";
@@ -243,6 +246,46 @@ window.Renderer = class Renderer {
     }
   }
 
+  /* Draw the ordered relevance chain: a path through the search hits from
+     strongest to weakest. Each segment is coloured and weighted by the
+     relevance of its weaker (later) endpoint, warm+solid when strong and
+     cool+dotted below the DOTTED_BELOW threshold — so the chain itself reads
+     as the relevance gradient. */
+  _drawChain() {
+    const chain = this.chain;
+    if (chain.length < 2) return;
+
+    const ctx = this.ctx;
+    const TH = this.theme;
+    const drawers = this.meta.drawers;
+    const accent = TH.accent.split(",").map(Number);
+    const weak = this.themeName === "dark" ? [122, 132, 158] : [110, 120, 146];
+    const DOTTED_BELOW = 0.5;
+    const LO = 0.35, HI = 0.7; // relevance range mapped onto the colour ramp
+
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    for (let k = 0; k < chain.length - 1; k += 1) {
+      const a = drawers[chain[k].index];
+      const b = drawers[chain[k + 1].index];
+      if (!a || !b) continue;
+      const rel = Math.min(chain[k].rel, chain[k + 1].rel); // the weaker endpoint
+      const t = Math.max(0, Math.min(1, (rel - LO) / (HI - LO)));
+      const c = accent.map((hi, i) => Math.round(weak[i] + (hi - weak[i]) * t));
+      const [x1, y1] = this.worldToScreen(a.x, a.y);
+      const [x2, y2] = this.worldToScreen(b.x, b.y);
+
+      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${(0.3 + 0.55 * t).toFixed(3)})`;
+      ctx.lineWidth = 1.0 + 1.7 * t;
+      ctx.setLineDash(rel < DOTTED_BELOW ? [3, 3.5] : []);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
   draw() {
     const ctx = this.ctx;
     const TH = this.theme;
@@ -266,6 +309,9 @@ window.Renderer = class Renderer {
       const [sx, sy] = this.worldToScreen(c.rect[0], c.rect[1]);
       ctx.strokeRect(sx + 0.25, sy + 0.25, c.rect[2] * this.scale - 0.5, c.rect[3] * this.scale - 0.5);
     });
+
+    // Relevance chain, under the dots so the accent hits sit on top of it.
+    this._drawChain();
 
     // Radius is capped both ends: floor so a far-zoomed dot stays visible,
     // ceiling so a near-zoomed chamber doesn't turn into overlapping blobs.
