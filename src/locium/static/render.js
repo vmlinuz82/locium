@@ -45,6 +45,9 @@ window.Renderer = class Renderer {
     // Ordered relevance chain drawn between search hits, strongest first.
     // Each entry: { index, rel } where rel is cosine similarity 0..1.
     this.chain = [];
+    // Neighbour star: rays from a clicked drawer to its nearest neighbours.
+    // Each entry: { from, to, rel }.
+    this.rays = [];
     this.selected = null;
 
     this.themeName = "light";
@@ -246,42 +249,45 @@ window.Renderer = class Renderer {
     }
   }
 
-  /* Draw the ordered relevance chain: a path through the search hits from
-     strongest to weakest. Each segment is coloured and weighted by the
-     relevance of its weaker (later) endpoint, warm+solid when strong and
-     cool+dotted below the DOTTED_BELOW threshold — so the chain itself reads
-     as the relevance gradient. */
-  _drawChain() {
-    const chain = this.chain;
-    if (chain.length < 2) return;
-
+  /* One relevance-weighted line between two drawers: warm+solid when strong,
+     cool+dotted below DOTTED_BELOW. Shared by the search chain and the
+     neighbour star so both read as the same gradient. */
+  _drawSegment(ai, bi, rel) {
+    const a = this.meta.drawers[ai];
+    const b = this.meta.drawers[bi];
+    if (!a || !b) return;
     const ctx = this.ctx;
-    const TH = this.theme;
-    const drawers = this.meta.drawers;
-    const accent = TH.accent.split(",").map(Number);
+    const accent = this.theme.accent.split(",").map(Number);
     const weak = this.themeName === "dark" ? [122, 132, 158] : [110, 120, 146];
-    const DOTTED_BELOW = 0.5;
     const LO = 0.35, HI = 0.7; // relevance range mapped onto the colour ramp
+    const t = Math.max(0, Math.min(1, (rel - LO) / (HI - LO)));
+    const c = accent.map((hi, i) => Math.round(weak[i] + (hi - weak[i]) * t));
+    const [x1, y1] = this.worldToScreen(a.x, a.y);
+    const [x2, y2] = this.worldToScreen(b.x, b.y);
 
+    ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${(0.3 + 0.55 * t).toFixed(3)})`;
+    ctx.lineWidth = 1.0 + 1.7 * t;
+    ctx.setLineDash(rel < 0.5 ? [3, 3.5] : []);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  /* Search: a path through the ranked hits, strongest to weakest, each
+     segment weighted by its weaker (later) endpoint. Neighbours (star): rays
+     from the clicked drawer to each of its nearest neighbours. */
+  _drawChain() {
+    const ctx = this.ctx;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    for (let k = 0; k < chain.length - 1; k += 1) {
-      const a = drawers[chain[k].index];
-      const b = drawers[chain[k + 1].index];
-      if (!a || !b) continue;
-      const rel = Math.min(chain[k].rel, chain[k + 1].rel); // the weaker endpoint
-      const t = Math.max(0, Math.min(1, (rel - LO) / (HI - LO)));
-      const c = accent.map((hi, i) => Math.round(weak[i] + (hi - weak[i]) * t));
-      const [x1, y1] = this.worldToScreen(a.x, a.y);
-      const [x2, y2] = this.worldToScreen(b.x, b.y);
 
-      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${(0.3 + 0.55 * t).toFixed(3)})`;
-      ctx.lineWidth = 1.0 + 1.7 * t;
-      ctx.setLineDash(rel < DOTTED_BELOW ? [3, 3.5] : []);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
+    for (let k = 0; k < this.chain.length - 1; k += 1) {
+      const rel = Math.min(this.chain[k].rel, this.chain[k + 1].rel);
+      this._drawSegment(this.chain[k].index, this.chain[k + 1].index, rel);
+    }
+    for (const ray of this.rays) {
+      this._drawSegment(ray.from, ray.to, ray.rel);
     }
     ctx.setLineDash([]);
   }

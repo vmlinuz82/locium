@@ -64,6 +64,30 @@ test("selecting a drawer highlights ten neighbours, each a real drawer", async (
   expect(result.allResolve).toBe(true);
 });
 
+test("selecting a drawer draws a neighbour star, cleared by search", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(() => window.__locium.select(0));
+
+  const star = await page.evaluate(() => {
+    const rays = window.__locium.renderer.rays;
+    return {
+      count: rays.length,
+      allFromCentre: rays.every((r) => r.from === 0),
+      relsInRange: rays.every((r) => r.rel >= 0 && r.rel <= 1),
+      chainEmpty: window.__locium.renderer.chain.length === 0,
+    };
+  });
+  // A ray from the clicked drawer to each of its ten neighbours.
+  expect(star.count).toBe(10);
+  expect(star.allFromCentre).toBe(true);
+  expect(star.relsInRange).toBe(true);
+  // The star and the search chain are mutually exclusive views.
+  expect(star.chainEmpty).toBe(true);
+
+  await page.evaluate(() => window.__locium.search("technical"));
+  expect(await page.evaluate(() => window.__locium.renderer.rays.length)).toBe(0);
+});
+
 test("search dims non-matches without moving any dot", async ({ page }) => {
   await ready(page);
   const before = await page.evaluate(() =>

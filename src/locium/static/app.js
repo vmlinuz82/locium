@@ -193,7 +193,10 @@
 
     renderer.highlighted = new Set([index, ...neighbours.map((n) => n.index)]);
     renderer.dimmed = new Set();
-    renderer.chain = []; // the relevance chain belongs to search, not the wander
+    // A star of relevance lines from the clicked drawer to each neighbour —
+    // same colour/dotting as search, but rays from a centre rather than a path.
+    renderer.chain = [];
+    renderer.rays = neighbours.map((n) => ({ from: index, to: n.index, rel: 1 - n.distance }));
 
     $("ph").textContent = `${record.wing} / ${record.hall} / ${record.room}`;
     $("pm").textContent = record.date || "undated";
@@ -365,6 +368,7 @@
     // order. Weak noise is excluded by the floor; the renderer dots-out any
     // remaining segment below its own threshold.
     renderer.chain = ranked.filter((r) => r.rel >= CHAIN_FLOOR).slice(0, CHAIN_MAX);
+    renderer.rays = []; // search draws the chain, not the neighbour star
     renderer.highlighted = matches;
     renderer.dimmed = new Set(drawers.map((_, i) => i).filter((i) => !matches.has(i)));
     $("qn").textContent = `${matches.size} of ${drawers.length} drawers`;
@@ -376,6 +380,7 @@
     renderer.dimmed = new Set();
     renderer.highlighted = new Set();
     renderer.chain = [];
+    renderer.rays = [];
     $("q").value = "";
     $("qn").style.opacity = 0;
     renderer.draw();
