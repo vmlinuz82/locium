@@ -91,9 +91,12 @@ def build_index(
                 rows_by_room[drawers[row].room].append(row)
 
             room_counts = {r: len(v) for r, v in rows_by_room.items()}
+            # dot_cap <= 0 means "no cap" — draw every drawer so every search
+            # hit has a dot, at the cost of denser chambers.
+            unlimited = tuning.dot_cap <= 0
             for room, chamber in subdivide(room_counts, hall_rect, tuning.pad_chamber).items():
                 rows = rows_by_room[room]
-                shown = rows[: tuning.dot_cap]
+                shown = rows if unlimited else rows[: tuning.dot_cap]
                 chambers_meta.append(
                     {
                         "name": room,
@@ -101,7 +104,7 @@ def build_index(
                         "hall": hall,
                         "rect": _rect_list(chamber),
                         "count": len(rows),
-                        "capped": len(rows) > tuning.dot_cap,
+                        "capped": not unlimited and len(rows) > tuning.dot_cap,
                     }
                 )
 

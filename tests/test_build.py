@@ -334,6 +334,21 @@ def test_vectors_and_arcs_stay_aligned_when_a_chamber_is_capped(tmp_path):
         assert 0 <= dst < len(meta["drawers"])
 
 
+def test_dot_cap_zero_draws_every_drawer(tmp_path):
+    """dot_cap <= 0 means no cap: every drawer gets a dot so every search hit
+    is reachable, and no chamber is marked capped."""
+    palace = tmp_path / "palace"
+    _make_palace(palace, [(f"d{i}", "w", "h", "r") for i in range(50)])
+    meta = build_index(palace, tmp_path / "idx", tuning=Tuning(dot_cap=0))
+
+    assert len(meta["drawers"]) == 50
+    assert meta["drawer_count"] == 50
+    assert not any(c["capped"] for c in meta["chambers"])
+    # the one chamber reports all 50 and draws all 50
+    chamber = next(c for c in meta["chambers"] if c["name"] == "r")
+    assert chamber["count"] == 50
+
+
 def test_capped_chamber_still_reports_its_true_count(fake_palace, tmp_path):
     # Keyed by the full (wing, hall, name) triple, not name alone: room names
     # are shared across wings/halls (e.g. two unrelated "technical" chambers),

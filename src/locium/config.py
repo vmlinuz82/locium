@@ -20,7 +20,7 @@ class Tuning:
     arc_global_cap: int = 20000
     preview_chars: int = 200
     seed: int = 42
-    dot_cap: int = 300
+    dot_cap: int = 0  # 0 = no cap: draw every drawer so every hit has a dot
     pad_hall: float = 8.5
     pad_chamber: float = 5.0
 

@@ -14,7 +14,7 @@ def test_tuning_matches_spec_defaults():
     assert TUNING.arc_global_cap == 20000
     assert TUNING.preview_chars == 200
     assert TUNING.seed == 42
-    assert TUNING.dot_cap == 300
+    assert TUNING.dot_cap == 0
     assert TUNING.pad_hall == 8.5
     assert TUNING.pad_chamber == 5.0
 
