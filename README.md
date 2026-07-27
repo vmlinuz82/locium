@@ -1,5 +1,11 @@
 # Locium
 
+[![license: MIT](https://img.shields.io/badge/license-MIT-1a1a19?style=flat-square)](LICENSE)
+![python 3.11+](https://img.shields.io/badge/python-3.11+-1a1a19?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-1a1a19?style=flat-square&logo=fastapi&logoColor=white)
+![HTML5 canvas](https://img.shields.io/badge/render-HTML5_canvas-1a1a19?style=flat-square&logo=html5&logoColor=white)
+![memory palace](https://img.shields.io/badge/for-memory_palaces-a8331a?style=flat-square)
+
 A visual explorer for an agent's memory. Locium renders a MemPalace store as
 an architect's floorplan — one connected building, wings and halls as blocks,
 rooms as chambers, drawers as dots — and records the connections you confirm
@@ -9,6 +15,14 @@ The name comes from *loci* — the classical method of loci, where memories are
 placed in imagined locations. Pronounced LOH-see-um.
 
 ![Locium draws a MemPalace store as an architect's floorplan — a connected building of wings, halls and chambers, every memory a dot in its room](docs/img/floorplan.png)
+
+## Demo
+
+Pan and zoom the building, search to draw a relevance chain through the hits
+(solid for strong matches, dotted as relevance fades), switch light/dark, and
+click a drawer to fan a star out to its nearest neighbours.
+
+![Locium demo — zooming the floorplan, searching to draw the relevance chain, switching theme, and the neighbour star](docs/img/demo.gif)
 
 ## Install
 
