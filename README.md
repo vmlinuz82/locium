@@ -31,15 +31,32 @@ click a drawer to fan a star out to its nearest neighbours.
 
 ## Use
 
-    locium build          # read the palace, write the index
+Build the index once, then serve it as often as you like:
+
+    locium build          # read the palace, write the index to ~/.locium/index
     locium serve          # open http://127.0.0.1:7777
+
+**You do not rebuild every time.** `build` writes an index that persists on
+disk; `serve` just reads whatever index is already there (and refuses, telling
+you to `build`, if none exists). Day to day, `locium serve` is all you run.
+
+Rebuild only when you want the map to reflect **new** memories added since the
+last build. `serve` watches for this: it compares the palace's modification
+time against the index and shows a banner — *"Palace has changed since this
+index was built"* — when the palace has moved on. That's your cue to run
+`locium build` again and reload the page. A plain rebuild keeps every existing
+drawer exactly where it is and only places the new ones.
+
+(If the `locium` command isn't found, either activate the venv with
+`source .venv/bin/activate` or call it as `.venv/bin/locium`.)
 
 Options:
 
     --palace PATH   MemPalace store (default ~/.mempalace/palace,
                     or $MEMPALACE_PALACE)
     --index PATH    index location (default ~/.locium/index)
-    --refit         re-pack every chamber; MOVES existing drawers
+    --refit         re-pack every chamber from scratch; MOVES existing drawers
+                    (only if you want a clean re-lay — a plain build never does)
     --port N        serve on a specific port (default 7777)
 
 ## How it works
