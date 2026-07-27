@@ -107,16 +107,13 @@ build. New drawers are packed into the space that's left. Only `--refit`
 discards everything and repacks from scratch, and it will invalidate the map
 you have memorised.
 
-## Tunnels
+## Read-only
 
-Confirming a connection calls `mempalace.palace_graph.create_tunnel`, which
-writes to `~/.mempalace/tunnels.json` under a file lock. Nothing is ever
-written to ChromaDB.
-
-Tunnel identity is the wing/room pair, so one tunnel exists per pair of rooms
-and the drawer ids record the exemplar that prompted it.
+Locium never writes to the palace. `build` copies the ChromaDB store to a
+temporary snapshot and reads that; `serve` reads only the index artifact, and
+touches the real palace exactly once — a `stat` for the staleness banner.
 
 ## Tests
 
-    .venv/bin/python -m pytest      # build pipeline, API, tunnels
+    .venv/bin/python -m pytest      # build pipeline, API, index artifact
     npx playwright test             # browser

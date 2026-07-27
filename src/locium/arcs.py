@@ -2,8 +2,7 @@
 
 Two drawers sitting in different wings can be nearly identical in meaning.
 Because wings occupy fixed regions, that closeness cannot show up as
-proximity, so it is recorded as an explicit edge instead. These arcs are also
-the candidate set for tunnel confirmation.
+proximity, so it is recorded as an explicit edge instead.
 """
 
 import numpy as np

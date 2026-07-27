@@ -11,11 +11,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, field_validator
 
-from . import tunnels as tunnel_api
 from .extract import palace_mtime
-from .index import VECTORS_NAME, index_exists, read_meta, read_text
+from .index import (
+    VECTORS_NAME,
+    index_exists,
+    read_meta,
+    read_text,
+    search_texts,
+    snippets,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Ceiling on literal hits returned for one query. A bare word can occur in
+# thousands of drawers, and highlighting thousands of dots says nothing.
+TEXT_HIT_LIMIT = 200
 
 
 class SearchRequest(BaseModel):
@@ -29,14 +39,14 @@ class SearchRequest(BaseModel):
         return value
 
 
-class TunnelRequest(BaseModel):
-    source_wing: str
-    source_room: str
-    target_wing: str
-    target_room: str
-    label: str = ""
-    source_drawer_id: str | None = None
-    target_drawer_id: str | None = None
+class SnippetRequest(BaseModel):
+    ids: list[str]
+    query: str = ""
+
+    @field_validator("ids")
+    @classmethod
+    def capped(cls, value: list[str]) -> list[str]:
+        return value[:TEXT_HIT_LIMIT]
 
 
 def create_app(index_path: Path, palace: Path) -> FastAPI:
@@ -45,7 +55,6 @@ def create_app(index_path: Path, palace: Path) -> FastAPI:
             f"no index at {index_path}. Run: locium build"
         )
 
-    tunnel_api.assert_api()
     app = FastAPI(title="Locium")
 
     @app.get("/api/index")
@@ -67,6 +76,17 @@ def create_app(index_path: Path, palace: Path) -> FastAPI:
 
         return {"vector": embed_query(request.query).tolist()}
 
+    @app.post("/api/search-text")
+    def search_text(request: SearchRequest) -> dict:
+        """Literal substring hits, which the embedding alone cannot find."""
+        ids = search_texts(index_path, request.query, TEXT_HIT_LIMIT)
+        return {"ids": ids, "truncated": len(ids) >= TEXT_HIT_LIMIT}
+
+    @app.post("/api/snippets")
+    def get_snippets(request: SnippetRequest) -> dict:
+        """Readable text for a result list, centred on the query where it hits."""
+        return {"snippets": snippets(index_path, request.ids, request.query)}
+
     @app.get("/api/drawer/{drawer_id}")
     def get_drawer(drawer_id: str) -> dict:
         meta = read_meta(index_path)
@@ -79,21 +99,6 @@ def create_app(index_path: Path, palace: Path) -> FastAPI:
             "date": row["date"], "source_file": row.get("source_file", ""),
             "text": read_text(index_path, drawer_id) or row["preview"],
         }
-
-    @app.get("/api/tunnels")
-    def get_tunnels() -> dict:
-        try:
-            return {"tunnels": tunnel_api.listing()}
-        except Exception as exc:  # a malformed tunnels.json must not kill the map
-            return {"tunnels": [], "error": str(exc)}
-
-    @app.post("/api/tunnel")
-    def post_tunnel(request: TunnelRequest) -> dict:
-        return tunnel_api.create(**request.model_dump())
-
-    @app.delete("/api/tunnel/{tunnel_id}")
-    def remove_tunnel(tunnel_id: str) -> dict:
-        return tunnel_api.delete(tunnel_id)
 
     @app.post("/api/rebuild")
     def rebuild() -> dict:

@@ -103,6 +103,104 @@ def index_exists(path: Path) -> bool:
     return (path / META_NAME).exists() and (path / VECTORS_NAME).exists()
 
 
+# texts.json parsed once per artifact generation, keyed by index path. A
+# full-text scan cannot re-parse a multi-megabyte file on every keystroke, so
+# the parsed map is held and revalidated against the file's identity.
+_TEXTS_CACHE: dict[Path, tuple[tuple[int, int, int], dict[str, str]]] = {}
+
+
+def _identity(file: Path) -> tuple[int, int, int]:
+    """A fingerprint that changes whenever texts.json is rebuilt.
+
+    mtime alone is not enough: Linux stamps inodes from a coarse clock that
+    only advances once per timer tick, so two writes a few milliseconds apart
+    get byte-identical ``st_mtime_ns`` and a rebuild would go unnoticed. The
+    inode is what actually distinguishes them -- ``write_index`` never mutates
+    in place, it stages a new file and renames it over the old one.
+    """
+    stat = file.stat()
+    return (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
+def load_texts(path: Path) -> dict[str, str]:
+    """Every drawer's full text, cached. Empty dict if texts.json is unusable."""
+    file = path / TEXTS_NAME
+    try:
+        stamp = _identity(file)
+    except OSError:
+        return {}
+
+    cached = _TEXTS_CACHE.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+
+    try:
+        texts = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(texts, dict):
+        return {}
+
+    _TEXTS_CACHE[path] = (stamp, texts)
+    return texts
+
+
+# A snippet is for judging a result, not reading it -- the full-text popup is
+# for reading. At the panel's width this is roughly five lines, so forty
+# results stay scannable. What makes it useful is not its length but that it
+# is centred on the match: the first 200 characters of a log or a directory
+# listing say nothing about why the drawer came back.
+SNIPPET_WIDTH = 240
+
+
+def snippet(text: str, needle: str, width: int = SNIPPET_WIDTH) -> str:
+    """A readable window of ``text``, centred on ``needle`` where it occurs.
+
+    meta.json only carries the first ``preview_chars`` of a drawer, which for
+    machine-generated content (a directory listing, a log) is routinely the
+    least informative part of it. Centring on the match instead shows why the
+    drawer came back at all.
+    """
+    if len(text) <= width:
+        return text
+
+    at = text.lower().find(needle.lower()) if needle else -1
+    if at < 0:
+        return text[:width].rstrip() + "…"
+
+    # Keep a third of the window ahead of the match so there is context on
+    # both sides, then clamp so the tail of a document still fills the window.
+    start = max(0, min(at - width // 3, len(text) - width))
+    end = min(len(text), start + width)
+    lead = "…" if start > 0 else ""
+    tail = "…" if end < len(text) else ""
+    return f"{lead}{text[start:end].strip()}{tail}"
+
+
+def snippets(path: Path, drawer_ids: list[str], needle: str) -> dict[str, str]:
+    """Snippet per id, skipping ids with no stored text."""
+    texts = load_texts(path)
+    return {i: snippet(texts[i], needle) for i in drawer_ids if i in texts}
+
+
+def search_texts(path: Path, needle: str, limit: int) -> list[str]:
+    """Ids of drawers whose full text contains ``needle``, case-insensitively.
+
+    A literal substring match, which is what finds an identifier like
+    "EM-4103" that the embedding has no reason to rank highly. Hits come back
+    in artifact order rather than ranked -- a substring either occurs or it
+    does not, so there is no score to sort on.
+    """
+    lowered = needle.lower()
+    hits: list[str] = []
+    for drawer_id, text in load_texts(path).items():
+        if lowered in text.lower():
+            hits.append(drawer_id)
+            if len(hits) >= limit:
+                break
+    return hits
+
+
 def read_text(path: Path, drawer_id: str) -> str | None:
     """Read one drawer's full text from texts.json.
 

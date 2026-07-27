@@ -36,8 +36,16 @@ def _build(args: argparse.Namespace) -> int:
     from .extract import PalaceNotFound
 
     palace = resolve_palace(args.palace)
+    print(f"Building from {palace}", flush=True)
     try:
-        meta = build_index(palace, Path(args.index), refit=args.refit)
+        meta = build_index(
+            palace,
+            Path(args.index),
+            refit=args.refit,
+            # flush: a build is slow enough that a block-buffered pipe would
+            # show nothing at all until it finished, which is the problem.
+            progress=lambda message: print(message, flush=True),
+        )
     except PalaceNotFound as exc:
         print(str(exc), file=sys.stderr)
         return 1

@@ -1,4 +1,3 @@
-import importlib
 import os
 import time
 
@@ -10,20 +9,39 @@ from locium.build import build_index
 
 
 @pytest.fixture
-def client(fake_palace, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
-
-    import mempalace.palace_graph as palace_graph
-
-    importlib.reload(palace_graph)
-
+def client(fake_palace, tmp_path):
     index_path = tmp_path / "idx"
     build_index(fake_palace, index_path)
 
     from locium.server import create_app
 
     return TestClient(create_app(index_path, fake_palace))
+
+
+def test_search_text_endpoint_finds_every_literal_match(client):
+    body = client.post("/api/search-text", json={"query": "docker"}).json()
+    assert len(body["ids"]) == 6
+    assert body["truncated"] is False
+
+
+def test_search_text_endpoint_is_empty_when_the_string_is_absent(client):
+    body = client.post("/api/search-text", json={"query": "EM-4103"}).json()
+    assert body["ids"] == []
+
+
+def test_search_text_endpoint_rejects_a_blank_query(client):
+    assert client.post("/api/search-text", json={"query": "   "}).status_code == 422
+
+
+def test_snippets_endpoint_returns_text_for_the_ids_given(client):
+    body = client.post("/api/snippets", json={"ids": ["d0", "d1"], "query": "docker"}).json()
+    assert set(body["snippets"]) == {"d0", "d1"}
+    assert "docker" in body["snippets"]["d0"]
+
+
+def test_snippets_endpoint_skips_unknown_ids(client):
+    body = client.post("/api/snippets", json={"ids": ["d0", "nope"], "query": ""}).json()
+    assert list(body["snippets"]) == ["d0"]
 
 
 def test_index_endpoint_returns_meta(client):
@@ -33,15 +51,8 @@ def test_index_endpoint_returns_meta(client):
     assert "stale" in body
 
 
-def test_stale_flag_reflects_palace_modification(fake_palace, tmp_path, monkeypatch):
+def test_stale_flag_reflects_palace_modification(fake_palace, tmp_path):
     """Verify staleness detection in both directions: not stale immediately after build, stale after modification."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
-
-    import mempalace.palace_graph as palace_graph
-
-    importlib.reload(palace_graph)
-
     index_path = tmp_path / "idx"
     build_index(fake_palace, index_path)
 
@@ -81,25 +92,6 @@ def test_search_returns_a_normalised_vector(client):
 
 def test_search_rejects_an_empty_query(client):
     assert client.post("/api/search", json={"query": "   "}).status_code == 422
-
-
-def test_tunnel_create_list_delete_round_trip(client):
-    created = client.post(
-        "/api/tunnel",
-        json={
-            "source_wing": "alpha", "source_room": "technical",
-            "target_wing": "beta", "target_room": "technical",
-            "label": "shared", "source_drawer_id": "d0", "target_drawer_id": "d5",
-        },
-    ).json()
-    assert client.get("/api/tunnels").json()["tunnels"][0]["label"] == "shared"
-
-    client.delete(f"/api/tunnel/{created['id']}")
-    assert client.get("/api/tunnels").json()["tunnels"] == []
-
-
-def test_tunnel_creation_requires_wings_and_rooms(client):
-    assert client.post("/api/tunnel", json={"source_wing": "alpha"}).status_code == 422
 
 
 def test_rebuild_returns_the_new_count(client):

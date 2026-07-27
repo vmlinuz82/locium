@@ -21,6 +21,15 @@ const THEMES = {
   },
 };
 
+/* Zoom limits, as multiples of the fit-to-screen scale. The ceiling is set by
+   the densest chambers, not by taste: drawer coordinates are quantised at
+   build time, and a saturated chamber packs its dots roughly 0.1 world units
+   apart. Since dot radius is capped at 4.2px (see draw()), the dots stay wider
+   than the gaps between them until scale passes ~84 -- about 105x baseScale on
+   a 900px-tall viewport. 250 clears that with room to read and click. */
+const ZOOM_MIN = 0.55;
+const ZOOM_MAX = 250;
+
 function boxesOverlap(a, b) {
   return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
 }
@@ -128,7 +137,7 @@ window.Renderer = class Renderer {
 
   zoomBy(factor, px, py) {
     const [wx, wy] = this.screenToWorld(px, py);
-    this.scale = Math.max(this.baseScale * 0.55, Math.min(this.baseScale * 26, this.scale * factor));
+    this.scale = Math.max(this.baseScale * ZOOM_MIN, Math.min(this.baseScale * ZOOM_MAX, this.scale * factor));
     this.offsetX = px - wx * this.scale;
     this.offsetY = py - wy * this.scale;
   }
@@ -139,7 +148,7 @@ window.Renderer = class Renderer {
   }
 
   focusOn(x, y) {
-    this.scale = Math.min(this.baseScale * 26, Math.max(this.scale, this.baseScale * 4));
+    this.scale = Math.min(this.baseScale * ZOOM_MAX, Math.max(this.scale, this.baseScale * 4));
     this.offsetX = this.viewW / 2 - x * this.scale;
     this.offsetY = this.viewH / 2 - y * this.scale;
   }
@@ -316,6 +325,23 @@ window.Renderer = class Renderer {
       ctx.strokeRect(sx + 0.25, sy + 0.25, c.rect[2] * this.scale - 0.5, c.rect[3] * this.scale - 0.5);
     });
 
+    // Cluster zones: recovered topics inside saturated chambers. Dashed, not
+    // walled -- these are soft groupings the build computed, not rooms the
+    // taxonomy declared, and the linework should say so. Only at deep zoom,
+    // where a mega-chamber is what fills the screen.
+    if (this.scale > this.baseScale * 2.5) {
+      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = `rgba(${TH.line},0.2)`;
+      ctx.setLineDash([2, 3]);
+      this.meta.chambers.forEach((c) => {
+        (c.clusters || []).forEach((cl) => {
+          const [sx, sy] = this.worldToScreen(cl.rect[0], cl.rect[1]);
+          ctx.strokeRect(sx, sy, cl.rect[2] * this.scale, cl.rect[3] * this.scale);
+        });
+      });
+      ctx.setLineDash([]);
+    }
+
     // Relevance chain, under the dots so the accent hits sit on top of it.
     this._drawChain();
 
@@ -372,6 +398,16 @@ window.Renderer = class Renderer {
         if (c.rect[2] * this.scale > 44) {
           this._tag(c.name, c.rect, 5.6 * zf, up(0.42), 0.9 * zf, c.capped ? String(c.count) : null);
         }
+      });
+    }
+    // Cluster labels last, so a chamber's own name wins the collision fight.
+    if (this.scale > this.baseScale * 2.5) {
+      this.meta.chambers.forEach((c) => {
+        (c.clusters || []).forEach((cl) => {
+          if (cl.label && cl.rect[2] * this.scale > 60) {
+            this._tag(cl.label, cl.rect, 5.2 * zf, up(0.34), 0.7 * zf, String(cl.count));
+          }
+        });
       });
     }
     ctx.letterSpacing = "0px";

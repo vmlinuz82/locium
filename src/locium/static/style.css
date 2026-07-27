@@ -153,7 +153,11 @@ body {
   bottom: 0;
   width: 376px;
   z-index: 7;
-  background: rgba(var(--knock), 0.975);
+  /* Fully opaque, not the prototype's 0.975: the canvas underneath carries a
+     per-pixel grain overlay, and even 2.5% of it reads as dirt behind a list
+     of results. --knock is the same colour as --paper in both themes, so the
+     panel still looks like a sheet laid on the drawing. */
+  background: rgb(var(--knock));
   border-left: 1px solid rgba(var(--line), 0.5);
   padding: 30px 28px;
   overflow-y: auto;
@@ -162,6 +166,34 @@ body {
 }
 #p.on {
   transform: none;
+}
+/* The scrollbar is drawn like the rest of the plan: a hairline gutter and a
+   square ink thumb, no rounded corners or system chrome. Firefox reads the
+   two standard properties, WebKit the pseudo-elements; both take their colour
+   from the same variables as the canvas, so the themes stay in step. */
+#p,
+#mb {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--line), 0.34) transparent;
+}
+#p::-webkit-scrollbar,
+#mb::-webkit-scrollbar {
+  width: 10px;
+}
+#p::-webkit-scrollbar-track,
+#mb::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid rgba(var(--line), 0.14);
+}
+#p::-webkit-scrollbar-thumb,
+#mb::-webkit-scrollbar-thumb {
+  background: rgba(var(--line), 0.32);
+  /* A knock-coloured border insets the thumb instead of padding the track. */
+  border: 3px solid rgb(var(--knock));
+}
+#p::-webkit-scrollbar-thumb:hover,
+#mb::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--line), 0.55);
 }
 #p h3 {
   font: 400 11px/1.5 inherit;

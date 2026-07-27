@@ -362,3 +362,76 @@ def test_capped_chamber_still_reports_its_true_count(fake_palace, tmp_path):
             drawn[key] += 1
     for c in capped:
         assert c["count"] > drawn[(c["wing"], c["hall"], c["name"])]
+
+
+def test_saturated_chamber_is_sub_clustered(tmp_path):
+    """A chamber past cluster_min gets labelled zones and every drawer lands
+    inside the chamber; smaller chambers stay untouched."""
+    palace = tmp_path / "palace"
+    entries = [(f"big{i}", "solo", "technical", "technical") for i in range(24)]
+    entries += [(f"small{i}", "solo", "technical", "problems") for i in range(3)]
+    _make_palace(palace, entries)
+
+    meta = build_index(palace, tmp_path / "idx", tuning=Tuning(cluster_min=20))
+
+    big = next(c for c in meta["chambers"] if c["name"] == "technical")
+    small = next(c for c in meta["chambers"] if c["name"] == "problems")
+    assert "clusters" not in small
+
+    clusters = big["clusters"]
+    assert len(clusters) >= 2
+    assert sum(c["count"] for c in clusters) == 24
+    # Zones subdivide the chamber, so they must all lie inside its rect.
+    bx, by, bw, bh = big["rect"]
+    for c in clusters:
+        x, y, w, h = c["rect"]
+        assert x >= bx - 1e-6 and y >= by - 1e-6
+        assert x + w <= bx + bw + 1e-6 and y + h <= by + bh + 1e-6
+
+    # Every drawer still lands inside the chamber that owns it.
+    for d in meta["drawers"]:
+        if d["room"] != "technical":
+            continue
+        assert bx <= d["x"] <= bx + bw
+        assert by <= d["y"] <= by + bh
+
+
+def test_sub_clustering_does_not_move_kept_drawers(tmp_path):
+    """Coordinate stability outranks cluster purity: a rebuild that starts
+    clustering a chamber must leave previously placed drawers where they were."""
+    palace = tmp_path / "palace"
+    entries = [(f"d{i}", "solo", "technical", "technical") for i in range(24)]
+    _make_palace(palace, entries)
+
+    index = tmp_path / "idx"
+    before = build_index(palace, index, tuning=Tuning(cluster_min=1000))
+    assert "clusters" not in before["chambers"][0]
+
+    after = build_index(palace, index, tuning=Tuning(cluster_min=20))
+    assert "clusters" in after["chambers"][0]
+
+    old = {d["id"]: (d["x"], d["y"]) for d in before["drawers"]}
+    for d in after["drawers"]:
+        assert (d["x"], d["y"]) == old[d["id"]]
+
+
+def test_build_snapshots_the_knowledge_graph(tmp_path):
+    from tests.test_kg import _make_kg
+
+    palace = tmp_path / "palace"
+    _make_palace(palace, [("d0", "solo", "technical", "technical")])
+    _make_kg(tmp_path, [("solo-project", "uses", "docker", "2026-05-01", None)])
+
+    meta = build_index(palace, tmp_path / "idx")
+
+    assert meta["kg"]["entity_count"] == 2
+    assert meta["kg"]["triples"][0]["s"] == "solo-project"
+
+
+def test_build_without_a_knowledge_graph_gets_an_empty_snapshot(tmp_path):
+    palace = tmp_path / "palace"
+    _make_palace(palace, [("d0", "solo", "technical", "technical")])
+
+    meta = build_index(palace, tmp_path / "idx")
+
+    assert meta["kg"] == {"entity_count": 0, "triples": []}

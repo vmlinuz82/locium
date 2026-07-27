@@ -23,6 +23,12 @@ class Tuning:
     dot_cap: int = 0  # 0 = no cap: draw every drawer so every hit has a dot
     pad_hall: float = 8.5
     pad_chamber: float = 5.0
+    # Chambers with at least this many drawers get sub-clustered: a mined
+    # palace files most of its content under one room name, so past this size
+    # the room label carries no information and clusters recover it.
+    cluster_min: int = 150
+    cluster_k_cap: int = 6
+    pad_cluster: float = 1.0
 
 
 TUNING = Tuning()

@@ -15,6 +15,8 @@ from locium.index import (
     read_meta,
     read_text,
     read_vectors,
+    search_texts,
+    snippet,
     write_index,
 )
 
@@ -205,6 +207,71 @@ def test_read_text_returns_none_for_unknown_id(tmp_path):
     texts = {"d1": "full text for d1"}
     write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), texts)
     assert read_text(tmp_path / "idx", "does-not-exist") is None
+
+
+def test_search_texts_finds_an_identifier_the_preview_would_miss(tmp_path):
+    texts = {"d1": "a" * 500 + " ticket EM-4103 raised", "d2": "unrelated"}
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), texts)
+    assert search_texts(tmp_path / "idx", "EM-4103", 10) == ["d1"]
+
+
+def test_search_texts_is_case_insensitive(tmp_path):
+    texts = {"d1": "ticket em-4103 in lower case", "d2": "unrelated"}
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), texts)
+    assert search_texts(tmp_path / "idx", "EM-4103", 10) == ["d1"]
+
+
+def test_search_texts_stops_at_the_limit(tmp_path):
+    texts = {f"d{i}": "a shared token" for i in range(5)}
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), texts)
+    assert len(search_texts(tmp_path / "idx", "shared", 3)) == 3
+
+
+def test_search_texts_survives_a_missing_texts_file(tmp_path):
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8))
+    assert search_texts(tmp_path / "idx", "anything", 10) == []
+
+
+def test_snippet_returns_short_text_untouched():
+    assert snippet("a short drawer", "drawer", width=100) == "a short drawer"
+
+
+def test_snippet_centres_on_the_match_rather_than_the_start():
+    text = "x" * 2000 + " NEEDLE-42 " + "y" * 2000
+    out = snippet(text, "NEEDLE-42", width=300)
+
+    assert "NEEDLE-42" in out
+    assert len(out) <= 302  # the window plus a leading and trailing ellipsis
+    assert out.startswith("…") and out.endswith("…")
+
+
+def test_snippet_falls_back_to_the_head_when_the_needle_is_absent():
+    text = "z" * 1000
+    out = snippet(text, "not-here", width=200)
+
+    assert out.startswith("z")
+    assert out.endswith("…")
+
+
+def test_snippet_at_the_very_end_still_fills_the_window():
+    """A match in the last characters must not yield a stub of a snippet."""
+    text = "q" * 1000 + " TAIL-TOKEN"
+    out = snippet(text, "TAIL-TOKEN", width=300)
+
+    assert "TAIL-TOKEN" in out
+    assert len(out) >= 290
+
+
+def test_search_texts_sees_a_rebuild(tmp_path):
+    """The parsed texts are cached, so a rebuild must invalidate the entry."""
+    index = tmp_path / "idx"
+    vectors = np.ones((2, 4), dtype=np.int8)
+    write_index(index, _meta(), vectors, {"d1": "before"})
+    assert search_texts(index, "before", 10) == ["d1"]
+
+    write_index(index, _meta(), vectors, {"d1": "after"})
+    assert search_texts(index, "before", 10) == []
+    assert search_texts(index, "after", 10) == ["d1"]
 
 
 def test_read_text_returns_none_when_texts_file_missing(tmp_path):
