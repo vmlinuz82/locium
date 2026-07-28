@@ -18,8 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .arcs import compute_arcs
+from .classify import classify
 from .clusters import assign_clusters, cluster_count, label_clusters
 from .config import TUNING, Tuning
+from .embed import embed_texts
 from .extract import palace_mtime, read_drawers, snapshot_palace
 from .footprint import building_footprint, subdivide
 from .index import index_exists, read_meta, write_index
@@ -27,6 +29,7 @@ from .kg import read_kg
 from .models import Rect, make_preview
 from .packing import pack_chamber
 from .quantize import quantize
+from .stitching import build_families
 
 
 # Decimal places kept for a drawer's stored coordinate. This is the finest
@@ -265,6 +268,10 @@ def build_index(
                 "x": coords[drawer.id][0],
                 "y": coords[drawer.id][1],
                 "preview": make_preview(drawer.text, tuning.preview_chars),
+                # Content shape, present only when it says something: "data"
+                # (CSV/diff dumps) or "noise" (tool traffic). The client
+                # collapses these in search results and reports the share.
+                **({"kind": kind} if (kind := classify(drawer.text)) else {}),
             }
             for drawer in drawn_drawers
         ],
@@ -276,6 +283,27 @@ def build_index(
     }
 
     texts = {drawer.id: drawer.text for drawer in drawn_drawers}
-    write_index(index_path, meta, quantize(drawn_vectors), texts)
+    stitches = build_families(drawn_drawers)
+    done(f"mapped {len(stitches['families'])} split exchanges for stitching")
+
+    # The recall-gap material: the client dedupes results by family (indices
+    # into meta["drawers"]) and compares chunk-level recall against a
+    # hypothetical store where each split exchange is embedded whole. These
+    # vectors ride ALONGSIDE the chunk vectors, never instead of them -- the
+    # chunk ranking must keep mirroring what mempalace_search actually does.
+    position = {drawer.id: i for i, drawer in enumerate(drawn_drawers)}
+    family_orders = list(stitches["families"].values())
+    meta["stitch_families"] = [
+        [position[i] for i in ids] for ids in family_orders
+    ]
+    family_vectors = None
+    meta["family_vector_dim"] = 0
+    if family_orders:
+        family_texts = ["".join(texts[i] for i in ids) for ids in family_orders]
+        family_vectors = quantize(embed_texts(family_texts))
+        meta["family_vector_dim"] = int(family_vectors.shape[1])
+        done(f"embedded {len(family_texts)} stitched exchanges for the recall gap")
+
+    write_index(index_path, meta, quantize(drawn_vectors), texts, stitches, family_vectors)
     done(f"wrote the index to {index_path}")
     return meta

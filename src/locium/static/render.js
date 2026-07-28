@@ -58,6 +58,9 @@ window.Renderer = class Renderer {
     // Each entry: { from, to, rel }.
     this.rays = [];
     this.selected = null;
+    // Drawer index under the cursor in the results list, marked on the
+    // floor so a card can be matched to its dot at a glance.
+    this.hovered = null;
 
     this.themeName = "light";
     this.theme = THEMES.light;
@@ -153,6 +156,34 @@ window.Renderer = class Renderer {
     this.offsetY = this.viewH / 2 - y * this.scale;
   }
 
+  /* Animated pan that centres a point at the CURRENT zoom -- the zoom level
+     is the user's choice and a flight must not override it. Eases over
+     ~350ms so the eye can track WHERE the map is going; a new flight (or
+     stopFlight from a manual pan/zoom) cancels the previous one mid-air. */
+  flyTo(x, y, duration = 350) {
+    const targetX = this.viewW / 2 - x * this.scale;
+    const targetY = this.viewH / 2 - y * this.scale;
+    const from = { x: this.offsetX, y: this.offsetY };
+
+    this.stopFlight();
+    const started = performance.now();
+    const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+      const t = Math.min((now - started) / duration, 1);
+      const k = easeOut(t);
+      this.offsetX = from.x + (targetX - from.x) * k;
+      this.offsetY = from.y + (targetY - from.y) * k;
+      this.draw();
+      if (t < 1) this._flight = requestAnimationFrame(step);
+    };
+    this._flight = requestAnimationFrame(step);
+  }
+
+  stopFlight() {
+    if (this._flight) cancelAnimationFrame(this._flight);
+    this._flight = null;
+  }
+
   hitTest(px, py) {
     const [wx, wy] = this.screenToWorld(px, py);
     const tol = 8 / this.scale;
@@ -191,6 +222,25 @@ window.Renderer = class Renderer {
       p[i + 3] = alpha;
     }
     return g;
+  }
+
+  /* The grain, cached on an offscreen canvas. Regenerating noise per frame
+     was fine when draws only happened on interaction, but the hover flight
+     redraws every animation frame — and a full-screen ImageData allocation
+     plus one Math.random() per pixel per frame freezes the tab on large
+     high-DPI viewports. The noise is static; only a resize or a theme
+     change (different grain alpha) warrants rolling it again. */
+  _grainLayer() {
+    const key = `${this.canvas.width}x${this.canvas.height}:${this.theme.grain}`;
+    if (this._grainKey !== key) {
+      const layer = document.createElement("canvas");
+      layer.width = this.canvas.width;
+      layer.height = this.canvas.height;
+      layer.getContext("2d").putImageData(this._grain(), 0, 0);
+      this._grainCanvas = layer;
+      this._grainKey = key;
+    }
+    return this._grainCanvas;
   }
 
   /* A wall drawn as a filled band between its outer and inner edge, not a
@@ -307,7 +357,12 @@ window.Renderer = class Renderer {
 
     ctx.fillStyle = TH.paper;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
-    ctx.putImageData(this._grain(), 0, 0);
+    // drawImage honours the DPR transform (putImageData did not), so paint
+    // the backing-store-sized grain layer with the transform reset.
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this._grainLayer(), 0, 0);
+    ctx.restore();
 
     ctx.strokeStyle = `rgba(${TH.line},0.32)`;
     ctx.lineWidth = 1;
@@ -378,6 +433,7 @@ window.Renderer = class Renderer {
         ctx.stroke();
         ctx.lineWidth = 0.5;
       }
+
     });
 
     // Labels grow with the zoom they annotate — a fixed pixel size reads as
@@ -411,5 +467,40 @@ window.Renderer = class Renderer {
       });
     }
     ctx.letterSpacing = "0px";
+
+    this._drawHoverMarker();
+  }
+
+  /* The hovered result's dot, drawn LAST so nothing -- labels, knockouts,
+     denser dots -- can sit on top of it: an accent glow wide enough to spot
+     from across the sheet, a filled core, and a target ring. */
+  _drawHoverMarker() {
+    if (this.hovered === null) return;
+    const d = this.meta.drawers[this.hovered];
+    if (!d) return;
+    const ctx = this.ctx;
+    const TH = this.theme;
+    const [x, y] = this.worldToScreen(d.x, d.y);
+    const radius = Math.min(Math.max(0.8, 1.35 * this.scale), 4.2);
+
+    const glow = ctx.createRadialGradient(x, y, radius, x, y, radius + 26);
+    glow.addColorStop(0, `rgba(${TH.accent},0.55)`);
+    glow.addColorStop(1, `rgba(${TH.accent},0)`);
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 26, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = `rgb(${TH.accent})`;
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgb(${TH.accent})`;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 9, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 0.5;
   }
 };

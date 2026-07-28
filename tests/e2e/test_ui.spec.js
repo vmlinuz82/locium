@@ -94,6 +94,54 @@ test("a neighbour card opens the same full-text popup as a search result", async
   await page.waitForFunction((b) => window.__locium.state.selected !== b, before);
 });
 
+test("hovering a result marks its dot without moving the camera", async ({ page }) => {
+  await ready(page);
+  await searchWithResults(page, "wing_a");
+  const before = await page.evaluate(() => ({
+    scale: window.__locium.renderer.scale,
+    x: window.__locium.renderer.offsetX,
+    y: window.__locium.renderer.offsetY,
+  }));
+
+  await page.locator("#neighbours .neighbour").first().hover();
+  expect(await page.evaluate(() => window.__locium.renderer.hovered)).not.toBeNull();
+
+  // The marker appears; the viewport must NOT chase the cursor.
+  const during = await page.evaluate(() => ({
+    scale: window.__locium.renderer.scale,
+    x: window.__locium.renderer.offsetX,
+    y: window.__locium.renderer.offsetY,
+  }));
+  expect(during).toEqual(before);
+
+  await page.locator("#ph").hover();
+  expect(await page.evaluate(() => window.__locium.renderer.hovered)).toBeNull();
+});
+
+test("clicking a result opens the popup and flies the map to its dot", async ({ page }) => {
+  await ready(page);
+  await searchWithResults(page, "wing_a");
+
+  const scaleBefore = await page.evaluate(() => window.__locium.renderer.scale);
+  await page.locator("#neighbours .neighbour").first().click();
+  await expect(page.locator("#mo")).toHaveClass(/on/);
+
+  // The flight settles centred on the clicked drawer's dot, marker alive
+  // under the popup -- at the user's zoom level, which the flight never touches.
+  await page.waitForFunction(() => {
+    const r = window.__locium.renderer;
+    if (r.hovered === null) return false;
+    const d = window.__locium.state.meta.drawers[r.hovered];
+    const [sx, sy] = r.worldToScreen(d.x, d.y);
+    return Math.abs(sx - r.viewW / 2) < 1 && Math.abs(sy - r.viewH / 2) < 1;
+  });
+  expect(await page.evaluate(() => window.__locium.renderer.scale)).toBe(scaleBefore);
+
+  // Closing the popup releases the marker.
+  await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => window.__locium.renderer.hovered)).toBeNull();
+});
+
 test("the panel scrolls back to the top when its content is replaced", async ({ page }) => {
   await ready(page);
   await page.evaluate(() => window.__locium.select(0));
@@ -232,6 +280,113 @@ test("a result opens its full text without disturbing the selection", async ({ p
   await expect(page.locator("#mo")).not.toHaveClass(/on/);
   await page.waitForFunction(() => window.__locium.state.selected !== null);
   expect(await page.evaluate(() => window.__locium.renderer.rays.length)).toBe(10);
+});
+
+test("chunks of one exchange collapse to a single result card", async ({ page }) => {
+  await ready(page);
+  // "pipeline" literally occurs in split0 AND split2 -- two chunks of the
+  // same exchange, and nowhere else in the fixture.
+  await page.evaluate(() => window.__locium.search("pipeline"));
+  await page.waitForFunction(
+    () => document.querySelectorAll("#neighbours .neighbour").length > 0
+  );
+
+  const cards = await page.evaluate(() =>
+    [...document.querySelectorAll("#neighbours .neighbour small")].map((s) => s.textContent)
+  );
+  expect(cards.length).toBe(1);
+  expect(cards[0]).toContain("3-part exchange");
+  // The map still highlights every matching chunk -- only the list dedupes.
+  expect(await page.evaluate(() => window.__locium.renderer.highlighted.size)).toBe(2);
+});
+
+test("the verdict reports the recall gap against whole messages", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(() => window.__locium.search("record sent pipeline"));
+  await page.waitForFunction(() => document.getElementById("p").classList.contains("on"));
+
+  const verdict = await page.locator("#pm").textContent();
+  expect(verdict).toMatch(/claude recall: \d of top 5 ≥ 0.15/);
+  expect(verdict).toMatch(/whole messages would give \d/);
+});
+
+test("noisy results collapse behind one line, expandable on demand", async ({ page }) => {
+  await ready(page);
+  // "noisetoken" occurs only in the tool-dump slices: all three are one
+  // document family, and their content classifies as tool output.
+  await page.evaluate(() => window.__locium.search("noisetoken"));
+  await page.waitForFunction(() => document.getElementById("p").classList.contains("on"));
+
+  expect(await page.locator("#neighbours .neighbour").count()).toBe(0);
+  const toggle = page.locator("#more-results");
+  await expect(toggle).toHaveText(/\+ 1 data \/ tool-output result/);
+
+  await toggle.click();
+  const note = await page.locator("#neighbours .neighbour small").first().textContent();
+  expect(note).toContain("3-part exchange");
+  expect(note).toContain("tool output");
+  expect(await page.locator("#more-results").count()).toBe(0);
+});
+
+test("the panel previews a long drawer; full text lives in the popup", async ({ page }) => {
+  await ready(page);
+  // The stitched tool-dump message (~1k chars) exceeds the panel preview
+  // limit, so selecting one of its slices must show a trimmed body plus the
+  // read-full affordance instead of the whole text.
+  await page.evaluate(() => {
+    const index = window.__locium.state.indexById.get("dump1");
+    window.__locium.select(index);
+  });
+  await page.waitForFunction(() =>
+    document.getElementById("pb").classList.contains("open")
+  );
+
+  const preview = await page.evaluate(() => document.getElementById("pb").textContent);
+  expect(preview.length).toBeLessThan(800);
+
+  // The trimmed body itself is the click target, like a result card.
+  await page.click("#pb");
+  await expect(page.locator("#mo")).toHaveClass(/on/);
+  await page.waitForFunction(
+    () => !document.getElementById("mb").textContent.startsWith("Loading")
+  );
+  const full = await page.evaluate(() => document.getElementById("mb").textContent);
+  expect(full.length).toBeGreaterThan(preview.length);
+  expect(await page.locator("#mm").textContent()).toContain("stitched from 3 drawers");
+
+  // The slice that led here (dump1, part 2 of 3) is marked inside the
+  // stitched message -- and it is the MIDDLE occurrence, not a text match:
+  // all three dump slices carry identical text, only the offset tells them
+  // apart.
+  const mark = await page.evaluate(() => {
+    const m = document.querySelector("#mb mark");
+    return m
+      ? { text: m.textContent, before: m.previousSibling.textContent.length }
+      : null;
+  });
+  expect(mark).not.toBeNull();
+  expect(mark.text).toContain("noisetoken");
+  expect(mark.before).toBe(mark.text.length + 1); // one identical slice + "\n"
+});
+
+test("a split exchange reads stitched back together", async ({ page }) => {
+  await ready(page);
+  // Select the MIDDLE chunk: on its own it starts mid-word ("nt.php ...").
+  await page.evaluate(() => {
+    const index = window.__locium.state.indexById.get("split1");
+    window.__locium.select(index);
+  });
+  await page.waitForFunction(
+    () => !document.getElementById("pb").textContent.includes("(empty drawer)")
+      && document.getElementById("pb").textContent.length > 0
+  );
+
+  const body = await page.locator("#pb").textContent();
+  const meta = await page.locator("#pm").textContent();
+  // Concatenation heals the word the miner split.
+  expect(body).toContain("RecordSentEvent.php");
+  expect(body).toContain("closes the exchange");
+  expect(meta).toContain("stitched from 3 drawers");
 });
 
 test("the full-text popup closes on escape and on the backdrop", async ({ page }) => {

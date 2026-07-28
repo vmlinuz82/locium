@@ -54,11 +54,19 @@
         text-transform:none;letter-spacing:0}
       .neighbour small{display:block;opacity:.5;letter-spacing:.08em;
         text-transform:uppercase;margin-top:6px}
-      .banner{background:rgba(var(--accent),.16);border:1px solid rgba(var(--accent),.5);
+      /* --accent is a hex value, so rgba(var(--accent),…) is invalid CSS --
+         the prototype shipped this and banners silently rendered with no
+         background at all. color-mix derives the tints from the same hex. */
+      .banner{background:color-mix(in srgb,var(--accent) 16%,rgb(var(--knock)));
+        border:1px solid color-mix(in srgb,var(--accent) 50%,transparent);
         color:var(--ink);padding:8px 10px;margin-bottom:10px;font:400 10px/1.6
         ui-monospace,Menlo,monospace;letter-spacing:.03em;text-transform:none}
       #banner-slot{position:fixed;left:50%;top:24px;transform:translateX(-50%);
         z-index:8;max-width:420px;width:90%}
+      /* The stale warning is a standing condition, so it gets solid accent
+         ground and knock ink -- unmissable in both themes. */
+      .banner.stale{background:var(--accent);border-color:var(--accent);
+        color:rgb(var(--knock));letter-spacing:.05em;text-align:center}
       /* The clear affordance sits inside #q's box. #q is fixed at left:34px
          with width:236px, so its right edge is 270px; 242+26 lands the button
          2px inside that. Same font and vertical padding as the input, so both
@@ -72,8 +80,16 @@
       #qx.on:hover{opacity:1;color:var(--accent)}
       /* Palace health line under the title: drawer and fact counts at a
          glance, so stagnation is visible without opening anything. */
-      #hs{position:fixed;left:34px;top:72px;z-index:6;letter-spacing:.14em;
-        text-transform:uppercase;opacity:.48}
+      #hs{position:fixed;left:34px;top:70px;z-index:6;letter-spacing:.14em;
+        text-transform:uppercase;opacity:.48;max-width:260px;line-height:1.5}
+      /* The sheet behind the control cluster (title, health, search, zoom
+         row): same paper as the reading panel, so the linework and dots of
+         the floorplan never leak through the chrome. Sits between the
+         canvas and the controls (.c and friends are z-index 5+), aligned
+         on the drawing's outer frame at 18px. Sized from the real layout
+         in buildUI -- the button row's width changes with the theme label. */
+      #lp{position:fixed;left:18px;top:18px;z-index:4;
+        background:rgb(var(--knock));border:1px solid rgba(var(--line),.5)}
       /* Knowledge-graph facts listed above search results. */
       #facts{margin-bottom:4px}
       .fact{padding:6px 0;border-bottom:1px solid rgba(var(--line),.16);
@@ -84,6 +100,13 @@
       .fact small{display:block;opacity:.5;letter-spacing:.08em;
         text-transform:uppercase;margin-top:2px;text-decoration:none}
       #zc button.on{color:var(--accent)}
+      /* Collapsed noisy results and the long-text expander. */
+      #more-results{padding:10px 0;cursor:pointer;opacity:.6;
+        letter-spacing:.14em;text-transform:uppercase;
+        border-bottom:1px solid rgba(var(--line),.16)}
+      #more-results:hover{color:var(--accent);opacity:1}
+      #pb.open{cursor:pointer}
+      #pb.open:hover{color:var(--accent)}
       /* Full-text popup: a sheet laid over the drawing, same paper and
          hairline border as the reading panel so it belongs to the same set. */
       #ov{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.38);display:none}
@@ -101,6 +124,9 @@
       #mb{flex:1;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
         text-transform:none;letter-spacing:.01em;
         font:400 11px/1.85 ui-monospace,Menlo,monospace}
+      /* The slice of a stitched message that brought the reader here. */
+      #mb mark{background:color-mix(in srgb,var(--accent) 18%,rgb(var(--knock)));
+        color:inherit}
       #mx{position:absolute;right:14px;top:12px;font:inherit;background:none;
         border:none;color:var(--ink);opacity:.5;cursor:pointer;padding:4px}
       #mx:hover{opacity:1;color:var(--accent)}
@@ -165,6 +191,16 @@
     health.className = "c";
     document.body.appendChild(health);
 
+    // Backdrop for the whole left control cluster, sized to enclose the
+    // widest row (the zoom controls) with the same margin the cluster keeps
+    // from the frame. +14px slack absorbs the Dark<->Light label swap.
+    const rail = document.createElement("div");
+    rail.id = "lp";
+    document.body.appendChild(rail);
+    const controls = zoomControls.getBoundingClientRect();
+    rail.style.width = `${Math.ceil(controls.right) + 14 - 18}px`;
+    rail.style.height = `${Math.ceil(controls.bottom) + 14 - 18}px`;
+
     const banners = document.createElement("div");
     banners.id = "banner-slot";
     document.body.appendChild(banners);
@@ -223,23 +259,51 @@
     state.indexById = new Map(state.meta.drawers.map((d, i) => [d.id, i]));
     // Indexes built before the KG snapshot existed simply have no facts.
     state.kg = state.meta.kg || { entity_count: 0, triples: [] };
+
+    // Split-exchange families: drawer index -> family index, for deduping
+    // search results. The family vectors (whole exchanges embedded as one)
+    // back the recall-gap verdict; an index built before stitching simply
+    // has neither, and both features stay quiet.
+    state.familyOf = new Map();
+    (state.meta.stitch_families || []).forEach((members, family) => {
+      members.forEach((i) => state.familyOf.set(i, family));
+    });
+    state.familyStore = null;
+    const familyCount = (state.meta.stitch_families || []).length;
+    const familyDim = state.meta.family_vector_dim || 0;
+    if (familyCount && familyDim) {
+      const familyBuffer = await (await fetch("/api/family-vectors")).arrayBuffer();
+      if (familyBuffer.byteLength === familyCount * familyDim) {
+        state.familyStore = window.Knn.makeStore(familyBuffer, familyCount, familyDim);
+      }
+    }
+
     renderer.setData(state.meta);
 
     const expired = state.kg.triples.filter((t) => t.to).length;
+    const noisy = state.meta.drawers.filter((d) => d.kind).length;
     $("hs").textContent =
       `${state.meta.drawer_count} drawers · ${state.kg.entity_count} entities · ` +
-      `${state.kg.triples.length} facts` + (expired ? ` (${expired} expired)` : "");
+      `${state.kg.triples.length} facts` + (expired ? ` (${expired} expired)` : "") +
+      (noisy ? ` · ${Math.round((100 * noisy) / state.meta.drawer_count)}% noise` : "");
     initTheme();
-    if (state.meta.stale) showBanner("Palace has changed since this index was built.");
+    if (state.meta.stale) {
+      showBanner(
+        "Palace has changed since this index was built — run \"locium build\", then reload.",
+        true
+      );
+    }
     renderer.draw();
   }
 
-  function showBanner(message) {
+  function showBanner(message, sticky = false) {
     const div = document.createElement("div");
-    div.className = "banner";
+    div.className = sticky ? "banner stale" : "banner";
     div.textContent = message;
     $("banner-slot").appendChild(div);
-    setTimeout(() => div.remove(), 6000);
+    // A sticky banner reports a condition, not an event: it stays until the
+    // condition is gone (i.e. a rebuild and a reload), never on a timer.
+    if (!sticky) setTimeout(() => div.remove(), 6000);
   }
 
   /* ---- selection ----------------------------------------------------
@@ -277,9 +341,11 @@
     renderer.rays = neighbours.map((n) => ({ from: index, to: n.index, rel: 1 - n.distance }));
 
     $("ph").textContent = `${record.wing} / ${record.hall} / ${record.room}`;
-    $("pm").textContent = record.date || "undated";
+    $("pm").textContent = record.message
+      ? `${record.date || "undated"} · stitched from ${record.message_chunks} drawers`
+      : record.date || "undated";
     $("facts").replaceChildren(); // facts belong to search mode only
-    $("pb").textContent = record.text || "(empty drawer)";
+    renderPanelPreview($("pb"), record.message || record.text || "(empty drawer)", index);
     $("ps").textContent = record.source_file ? `source · ${record.source_file}` : "";
     $("p").classList.add("on");
     // New content, so start at the top of it -- otherwise the panel keeps
@@ -288,6 +354,27 @@
 
     renderNeighbours(neighbours);
     renderer.draw();
+  }
+
+  // The side panel is a preview, not a reader: enough to recognise the
+  // drawer, with the popup as the single place full text lives.
+  const PANEL_TEXT_LIMIT = 600;
+
+  function renderPanelPreview(container, text, index) {
+    container.replaceChildren();
+    container.classList.remove("open");
+    container.onclick = null;
+    container.title = "";
+    if (text.length <= PANEL_TEXT_LIMIT) {
+      container.textContent = text;
+      return;
+    }
+    // Same affordance as a result card: the trimmed body itself is the
+    // click target, and the popup is where the full text lives.
+    container.textContent = text.slice(0, PANEL_TEXT_LIMIT) + "…";
+    container.classList.add("open");
+    container.title = "open full text";
+    container.onclick = () => openFullText(index);
   }
 
   /* Reading a result must not cost you the result list. Clicking a card opens
@@ -302,6 +389,11 @@
     if (!drawer) return;
     fullTextIndex = index;
 
+    // Reading a memory is the moment to see where it lives: mark its dot
+    // and fly the map to it behind the popup.
+    renderer.hovered = index;
+    renderer.flyTo(drawer.x, drawer.y);
+
     $("mh").textContent = `${drawer.wing} / ${drawer.hall} / ${drawer.room}`;
     $("mm").textContent = drawer.date || "undated";
     $("mb").textContent = "Loading…";
@@ -313,14 +405,47 @@
     const record = await (await fetch(`/api/drawer/${drawer.id}`)).json();
     // A second click while this was in flight owns the popup now.
     if (fullTextIndex !== index) return;
-    $("mb").textContent = record.text || "(empty drawer)";
-    if (record.source_file) {
-      $("mm").textContent = `${drawer.date || "undated"} · ${record.source_file}`;
+    // The miner may have split this drawer's exchange across siblings; the
+    // server hands the reassembled message back as `message`, so the reader
+    // sees the whole thought, not the 800-char slice that happened to match.
+    // The popup is the one full reader: whatever the size, all of it. For a
+    // stitched message, the slice that actually led here -- the drawer that
+    // matched the search or was clicked on the map -- is marked and scrolled
+    // into view, so a 68-part stitch still tells you why you arrived.
+    const container = $("mb");
+    if (record.message && Number.isInteger(record.message_offset)) {
+      container.replaceChildren();
+      const from = record.message_offset;
+      const to = from + record.message_span_length;
+      const before = document.createElement("span");
+      before.textContent = record.message.slice(0, from);
+      const marked = document.createElement("mark");
+      marked.textContent = record.message.slice(from, to);
+      const after = document.createElement("span");
+      after.textContent = record.message.slice(to);
+      container.append(before, marked, after);
+      container.scrollTop = Math.max(
+        0,
+        marked.getBoundingClientRect().top -
+          container.getBoundingClientRect().top +
+          container.scrollTop -
+          60
+      );
+    } else {
+      container.textContent = record.message || record.text || "(empty drawer)";
     }
+    const notes = [drawer.date || "undated"];
+    if (record.message) {
+      notes.push(`stitched from ${record.message_chunks} drawers (this is part ${record.message_part})`);
+    }
+    if (record.source_file) notes.push(record.source_file);
+    $("mm").textContent = notes.join(" · ");
   }
 
   function closeFullText() {
     fullTextIndex = null;
+    renderer.hovered = null;
+    renderer.draw();
     $("ov").classList.remove("on");
     $("mo").classList.remove("on");
   }
@@ -328,6 +453,7 @@
   function closePanel() {
     state.selected = null;
     renderer.selected = null;
+    renderer.hovered = null;
     renderer.highlighted = new Set();
     // The neighbour star belongs to the selection that drew it, so it has to
     // go with it -- otherwise the rays outlive the drawer they radiate from.
@@ -343,9 +469,33 @@
      blank, then each body is swapped for a fuller snippet once the server has
      read it. The preview is only the first 200 characters, which for a log or
      a directory listing says nothing about what the drawer actually holds. */
-  async function renderCards(rows, query) {
+  /* Hovering a card marks WHERE that memory lives -- the glow on its dot --
+     without moving the camera: a viewport that chases the cursor down a
+     result list shakes the whole map. The flight happens on CLICK, together
+     with the popup, when you have committed to one result. */
+  function hoverDrawer(index) {
+    const drawer = drawerAt(index);
+    if (!drawer) return;
+    renderer.hovered = index;
+    renderer.draw();
+  }
+
+  function unhoverDrawer() {
+    if (renderer.hovered === null) return;
+    // While the popup is open it owns the marker: covering the card fires
+    // mouseleave, and clearing here would kill the glow mid-flight.
+    if (fullTextIndex !== null) return;
+    renderer.hovered = null;
+    renderer.draw();
+  }
+
+  async function renderCards(rows, query, append = false) {
     const list = $("neighbours");
-    list.replaceChildren();
+    if (!append) {
+      list.replaceChildren();
+      // A rebuilt list never fires mouseleave on the cards it replaced.
+      unhoverDrawer();
+    }
 
     const bodies = new Map();
     rows.forEach((row) => {
@@ -366,6 +516,8 @@
       card.appendChild(small);
 
       card.addEventListener("click", () => openFullText(row.index));
+      card.addEventListener("mouseenter", () => hoverDrawer(row.index));
+      card.addEventListener("mouseleave", unhoverDrawer);
       list.appendChild(card);
     });
 
@@ -457,6 +609,36 @@
     const recalledCount = recall.filter((r) => r.rel >= RECALL_FLOOR).length;
     const recallRank = new Map(recall.map((r, k) => [r.index, k + 1]));
 
+    // How much of what the agent gets is amputated: top-5 slots occupied by
+    // fragments of longer messages, and slots wasted on a second fragment of
+    // an exchange already in the set (the same memory served twice).
+    const fragmentSlots = recall.filter((r) => state.familyOf.has(r.index)).length;
+    const distinctExchanges = new Set(
+      recall.map((r) => state.familyOf.get(r.index)).filter((f) => f !== undefined)
+    ).size;
+    const duplicateSlots = fragmentSlots - distinctExchanges;
+
+    // The recall gap: the same verdict against a hypothetical store where
+    // every split exchange is one whole document. Singleton drawers keep
+    // their chunk score; each family is represented once, by its
+    // whole-message embedding. The difference between the two counts is the
+    // recall the miner's chunking costs on this query.
+    let wholeRecalled = null;
+    if (state.familyStore) {
+      const familyScores = state.familyStore.similarities(
+        Float32Array.from(semanticBody.vector)
+      );
+      const pool = [];
+      drawers.forEach((_, i) => {
+        if (!state.familyOf.has(i)) pool.push(scores[i]);
+      });
+      familyScores.forEach((s) => pool.push(s));
+      pool.sort((a, b) => b - a);
+      wholeRecalled = pool
+        .slice(0, RECALL_TOP)
+        .filter((s) => s >= RECALL_FLOOR).length;
+    }
+
     // The relevance chain: a path through the strongest genuine hits, in rank
     // order. Weak noise is excluded by the floor; the renderer dots-out any
     // remaining segment below its own threshold.
@@ -471,6 +653,9 @@
     renderSearchResults(trimmed, literal, semantic, literalBody.truncated, {
       recalledCount,
       recallRank,
+      wholeRecalled,
+      fragmentSlots,
+      duplicateSlots,
     });
   }
 
@@ -522,10 +707,28 @@
      so a result behaves exactly like a neighbour: click it and you land in the
      drawer, which switches the panel back to its first mode. */
   function renderSearchResults(query, literal, semantic, truncated, verdict) {
-    const rows = [
+    const rawRows = [
       ...[...literal].map((index) => ({ index, exact: true })),
       ...semantic.map((r) => ({ index: r.index, exact: false, rel: r.rel })),
     ].filter((row) => drawerAt(row.index) !== undefined);
+
+    // One card per exchange: several chunks of one split message matching a
+    // query are one result, not many. The best-ranked chunk represents the
+    // family (rawRows is already in rank order); its card opens the stitched
+    // message anyway. Only the LIST dedupes -- the recall verdict above is
+    // chunk-level on purpose, because that is what the agent actually gets.
+    const seenFamilies = new Set();
+    const rows = [];
+    for (const row of rawRows) {
+      const family = state.familyOf.get(row.index);
+      if (family === undefined) {
+        rows.push(row);
+        continue;
+      }
+      if (seenFamilies.has(family)) continue;
+      seenFamilies.add(family);
+      rows.push({ ...row, familySize: state.meta.stitch_families[family].length });
+    }
 
     $("ph").textContent = `${rows.length} result${rows.length === 1 ? "" : "s"} · ${query}`;
     // The health line this panel exists for: would an agent asking MemPalace
@@ -533,6 +736,21 @@
     const parts = [
       `claude recall: ${verdict.recalledCount} of top ${RECALL_TOP} ≥ ${RECALL_FLOOR}`,
     ];
+    if (verdict.fragmentSlots) {
+      let fragment = `${verdict.fragmentSlots} are fragments`;
+      if (verdict.duplicateSlots) {
+        fragment += ` (${verdict.duplicateSlots} duplicate exchange${verdict.duplicateSlots === 1 ? "" : "s"})`;
+      }
+      parts.push(fragment);
+    }
+    // Only claim a gap when there is one -- "would give the same" is noise.
+    if (
+      verdict.wholeRecalled !== null &&
+      verdict.wholeRecalled !== undefined &&
+      verdict.wholeRecalled !== verdict.recalledCount
+    ) {
+      parts.push(`whole messages would give ${verdict.wholeRecalled}`);
+    }
     if (truncated) parts.push(`literal capped at ${literal.size}`);
     $("pm").textContent = parts.join(" · ");
     const factCount = renderFacts(query);
@@ -541,18 +759,39 @@
       : "No drawer contains this text, and nothing clears the recall floor in meaning.";
     $("ps").textContent = "";
 
+    const noteFor = (row) => {
+      const rank = verdict.recallRank.get(row.index);
+      const notes = [row.exact ? "exact" : row.rel.toFixed(3)];
+      // A "claude #n" marker means: this exact drawer is one of the five
+      // mempalace_search would hand over for this query.
+      if (rank) notes.push(`claude #${rank}`);
+      if (row.familySize) notes.push(`${row.familySize}-part exchange`);
+      const kind = (drawerAt(row.index) || {}).kind;
+      if (kind) notes.push(kind === "data" ? "data dump" : "tool output");
+      return { index: row.index, note: notes.join(" · ") };
+    };
+
+    // Prose first; data dumps and tool traffic collapse behind one line.
+    // They still count in the header and still light up on the map -- the
+    // collapse is about not letting a pasted CSV bury the readable results.
+    const cleanRows = rows.filter((row) => !(drawerAt(row.index) || {}).kind);
+    const noisyRows = rows.filter((row) => (drawerAt(row.index) || {}).kind);
+
     $("p").classList.add("on");
     $("p").scrollTop = 0;
-    renderCards(
-      rows.map((row) => {
-        const rank = verdict.recallRank.get(row.index);
-        const base = row.exact ? "exact" : row.rel.toFixed(3);
-        // A "claude #n" marker means: this exact drawer is one of the five
-        // mempalace_search would hand over for this query.
-        return { index: row.index, note: rank ? `${base} · claude #${rank}` : base };
-      }),
-      query
-    );
+    renderCards(cleanRows.map(noteFor), query);
+
+    if (noisyRows.length) {
+      const toggle = document.createElement("div");
+      toggle.id = "more-results";
+      toggle.textContent =
+        `+ ${noisyRows.length} data / tool-output result${noisyRows.length === 1 ? "" : "s"}`;
+      toggle.addEventListener("click", () => {
+        toggle.remove();
+        renderCards(noisyRows.map(noteFor), query, true);
+      });
+      $("neighbours").appendChild(toggle);
+    }
   }
 
   /* ---- diary lens -------------------------------------------------------
@@ -647,6 +886,7 @@
     "wheel",
     (event) => {
       event.preventDefault();
+      renderer.stopFlight(); // the user's hand beats an in-progress flight
       const rect = canvas.getBoundingClientRect();
       renderer.zoomBy(event.deltaY < 0 ? 1.14 : 1 / 1.14, event.clientX - rect.left, event.clientY - rect.top);
       renderer.draw();
@@ -660,6 +900,7 @@
   let lastY = 0;
 
   canvas.addEventListener("pointerdown", (event) => {
+    renderer.stopFlight();
     dragging = true;
     moved = false;
     lastX = event.clientX;

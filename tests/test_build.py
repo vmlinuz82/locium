@@ -435,3 +435,117 @@ def test_build_without_a_knowledge_graph_gets_an_empty_snapshot(tmp_path):
     meta = build_index(palace, tmp_path / "idx")
 
     assert meta["kg"] == {"entity_count": 0, "triples": []}
+
+
+def test_build_writes_the_stitching_map(tmp_path):
+    """Chunked siblings land in stitches.json; whole exchanges stay out."""
+    import json
+
+    import chromadb
+
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    collection = chromadb.PersistentClient(path=str(palace)).get_or_create_collection(
+        name="mempalace_drawers"
+    )
+    rng = np.random.default_rng(5)
+    vectors = rng.normal(size=(3, 8)).astype(np.float32)
+    vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+    rows = [("h", "> q. Part one ", 0), ("t", "and part two.", 1), ("s", "> whole.", 2)]
+    collection.add(
+        ids=[r[0] for r in rows],
+        documents=[r[1] for r in rows],
+        embeddings=[v.tolist() for v in vectors],
+        metadatas=[
+            {"wing": "solo", "hall": "technical", "room": "technical",
+             "source_file": "c.jsonl", "chunk_index": r[2],
+             "created_at": "2026-06-01T00:00:00"}
+            for r in rows
+        ],
+    )
+
+    build_index(palace, tmp_path / "idx")
+    stitches = json.loads((tmp_path / "idx" / "stitches.json").read_text())
+
+    assert list(stitches["families"].values()) == [["h", "t"]]
+    assert set(stitches["member"]) == {"h", "t"}
+
+
+def test_build_ships_the_recall_gap_material(tmp_path):
+    """Split exchanges get index-based families in meta plus one whole-message
+    embedding each; a palace without splits ships neither."""
+    import json
+
+    import chromadb
+
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    collection = chromadb.PersistentClient(path=str(palace)).get_or_create_collection(
+        name="mempalace_drawers"
+    )
+    rng = np.random.default_rng(9)
+    vectors = rng.normal(size=(3, 8)).astype(np.float32)
+    vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+    rows = [("h", "> q. Part one ", 0), ("t", "and part two.", 1), ("s", "> whole.", 2)]
+    collection.add(
+        ids=[r[0] for r in rows],
+        documents=[r[1] for r in rows],
+        embeddings=[v.tolist() for v in vectors],
+        metadatas=[
+            {"wing": "solo", "hall": "technical", "room": "technical",
+             "source_file": "c.jsonl", "chunk_index": r[2],
+             "created_at": "2026-06-01T00:00:00"}
+            for r in rows
+        ],
+    )
+
+    meta = build_index(palace, tmp_path / "idx")
+
+    # Families hold positions into meta["drawers"], and they resolve back to
+    # the drawers that were stitched.
+    (family,) = meta["stitch_families"]
+    ids = [meta["drawers"][i]["id"] for i in family]
+    assert ids == ["h", "t"]
+
+    dim = meta["family_vector_dim"]
+    assert dim == 384
+    blob = (tmp_path / "idx" / "family_vectors.bin").read_bytes()
+    assert len(blob) == 1 * dim
+
+    # And the no-splits case ships neither the file nor a dimension.
+    no_split = tmp_path / "plain"
+    _make_palace(no_split, [("a", "solo", "technical", "technical")])
+    meta2 = build_index(no_split, tmp_path / "idx2")
+    assert meta2["stitch_families"] == []
+    assert meta2["family_vector_dim"] == 0
+    assert not (tmp_path / "idx2" / "family_vectors.bin").exists()
+
+
+def test_build_tags_content_kind_only_when_it_says_something(tmp_path):
+    import chromadb
+
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    collection = chromadb.PersistentClient(path=str(palace)).get_or_create_collection(
+        name="mempalace_drawers"
+    )
+    rng = np.random.default_rng(11)
+    vectors = rng.normal(size=(2, 8)).astype(np.float32)
+    vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+    csv_row = '"11/26/2025","hacked again","09/20/2025",,22,21,437 '
+    collection.add(
+        ids=["prose", "dump"],
+        documents=["a decision about the messenger transport and why", csv_row * 12],
+        embeddings=[v.tolist() for v in vectors],
+        metadatas=[
+            {"wing": "solo", "hall": "technical", "room": "technical",
+             "created_at": "2026-06-01T00:00:00"}
+            for _ in range(2)
+        ],
+    )
+
+    meta = build_index(palace, tmp_path / "idx")
+
+    by_id = {d["id"]: d for d in meta["drawers"]}
+    assert "kind" not in by_id["prose"]
+    assert by_id["dump"]["kind"] == "data"

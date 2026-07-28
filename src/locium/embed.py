@@ -35,3 +35,18 @@ def embed_query(text: str) -> np.ndarray:
     vector = np.asarray(raw, dtype=np.float32)
     norm = float(np.linalg.norm(vector))
     return vector / norm if norm > 1e-9 else vector
+
+
+def embed_texts(texts: list[str]) -> np.ndarray:
+    """L2-normalised float32 embeddings for a batch of documents.
+
+    Same model, same space as the stored drawer vectors. The model truncates
+    around 256 tokens, so for a long stitched message this effectively embeds
+    its head -- which is still strictly more than any single middle chunk of
+    it ever represented.
+    """
+    raw = _get_embedder()(list(texts))
+    matrix = np.asarray(raw, dtype=np.float32)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms < 1e-9] = 1.0
+    return matrix / norms

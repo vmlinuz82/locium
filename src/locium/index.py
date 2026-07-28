@@ -19,10 +19,17 @@ import numpy as np
 META_NAME = "meta.json"
 VECTORS_NAME = "vectors.bin"
 TEXTS_NAME = "texts.json"
+STITCHES_NAME = "stitches.json"
+FAMILY_VECTORS_NAME = "family_vectors.bin"
 
 
 def write_index(
-    path: Path, meta: dict, vectors: np.ndarray, texts: dict[str, str] | None = None
+    path: Path,
+    meta: dict,
+    vectors: np.ndarray,
+    texts: dict[str, str] | None = None,
+    stitches: dict | None = None,
+    family_vectors: np.ndarray | None = None,
 ) -> None:
     """Write meta.json, vectors.bin and (optionally) texts.json as one atomic unit.
 
@@ -34,6 +41,8 @@ def write_index(
     """
     if vectors.dtype != np.int8:
         raise ValueError(f"vectors must be int8, got {vectors.dtype}")
+    if family_vectors is not None and family_vectors.dtype != np.int8:
+        raise ValueError(f"family_vectors must be int8, got {family_vectors.dtype}")
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -58,6 +67,14 @@ def write_index(
     (staging / VECTORS_NAME).write_bytes(np.ascontiguousarray(vectors).tobytes())
     if texts is not None:
         (staging / TEXTS_NAME).write_text(json.dumps(texts, indent=2), encoding="utf-8")
+    if stitches is not None:
+        (staging / STITCHES_NAME).write_text(
+            json.dumps(stitches, indent=2), encoding="utf-8"
+        )
+    if family_vectors is not None:
+        (staging / FAMILY_VECTORS_NAME).write_bytes(
+            np.ascontiguousarray(family_vectors).tobytes()
+        )
 
     if old.exists():
         shutil.rmtree(old)
@@ -143,6 +160,38 @@ def load_texts(path: Path) -> dict[str, str]:
 
     _TEXTS_CACHE[path] = (stamp, texts)
     return texts
+
+
+_STITCHES_CACHE: dict[Path, tuple[tuple[int, int, int], dict]] = {}
+
+_EMPTY_STITCHES = {"families": {}, "member": {}}
+
+
+def load_stitches(path: Path) -> dict:
+    """The reassembly map, cached like texts. Empty shape when absent.
+
+    Same identity-based invalidation as load_texts: mtime alone cannot tell
+    two rebuilds apart, the inode can.
+    """
+    file = path / STITCHES_NAME
+    try:
+        stamp = _identity(file)
+    except OSError:
+        return dict(_EMPTY_STITCHES)
+
+    cached = _STITCHES_CACHE.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+
+    try:
+        stitches = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(_EMPTY_STITCHES)
+    if not isinstance(stitches, dict) or not isinstance(stitches.get("member"), dict):
+        return dict(_EMPTY_STITCHES)
+
+    _STITCHES_CACHE[path] = (stamp, stitches)
+    return stitches
 
 
 # A snippet is for judging a result, not reading it -- the full-text popup is

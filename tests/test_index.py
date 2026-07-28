@@ -283,3 +283,24 @@ def test_read_text_returns_none_on_malformed_json(tmp_path):
     write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8), {"d1": "hi"})
     (tmp_path / "idx" / TEXTS_NAME).write_text("not json", encoding="utf-8")
     assert read_text(tmp_path / "idx", "d1") is None
+
+
+def test_load_stitches_is_empty_when_the_file_is_absent(tmp_path):
+    write_index(tmp_path / "idx", _meta(), np.ones((2, 4), dtype=np.int8))
+    from locium.index import load_stitches
+
+    assert load_stitches(tmp_path / "idx") == {"families": {}, "member": {}}
+
+
+def test_stitches_round_trip_and_survive_a_rebuild(tmp_path):
+    from locium.index import load_stitches
+
+    index = tmp_path / "idx"
+    vectors = np.ones((2, 4), dtype=np.int8)
+    first = {"families": {"f0": ["d1", "d2"]}, "member": {"d1": "f0", "d2": "f0"}}
+    write_index(index, _meta(), vectors, stitches=first)
+    assert load_stitches(index) == first
+
+    second = {"families": {}, "member": {}}
+    write_index(index, _meta(), vectors, stitches=second)
+    assert load_stitches(index) == second

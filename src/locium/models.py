@@ -26,6 +26,10 @@ class Drawer:
     room: str
     created_at: str
     source_file: str
+    # Position within a mined source file when the miner split one message
+    # into consecutive drawers; None for curated or unsplit drawers. This is
+    # what lets split exchanges be reassembled at read time.
+    chunk_index: int | None = None
 
 
 def make_preview(text: str, limit: int = TUNING.preview_chars) -> str:

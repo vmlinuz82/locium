@@ -44,3 +44,14 @@ def test_embed_query_matches_chromas_default_embedding_function():
     theirs = chroma_raw / chroma_norm if chroma_norm > 1e-9 else chroma_raw
 
     assert np.allclose(ours, theirs, atol=1e-5)
+
+
+def test_embed_texts_returns_normalised_rows_in_the_same_space():
+    from locium.embed import embed_texts
+
+    matrix = embed_texts(["docker compose networking", "invoice ledger accounting"])
+    assert matrix.shape == (2, 384)
+    assert matrix.dtype == np.float32
+    assert np.allclose(np.linalg.norm(matrix, axis=1), 1.0, atol=1e-5)
+    # Batch and single-query paths must land in one vector space.
+    assert np.allclose(matrix[0], embed_query("docker compose networking"), atol=1e-5)

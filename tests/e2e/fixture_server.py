@@ -81,6 +81,53 @@ def make_palace(path: Path) -> None:
             ids.append(f"d{n}")
             n += 1
 
+    # One exchange split across three chunks (mimicking the miner's
+    # CHUNK_SIZE slicing, mid-word at "RecordSentEve|nt.php") so the
+    # read-time stitching path renders in e2e. Filed into an existing
+    # chamber so the wing/hall/chamber counts above stay true.
+    split = [
+        ("split0", "> how is the record sent? The pipeline dispatches RecordSentEve", 0),
+        ("split1", "nt.php handlers, one per batch of entities, with retries. ", 1),
+        ("split2", "The final pipeline acknowledgement closes the exchange.", 2),
+    ]
+    for drawer_id, text, chunk in split:
+        ids.append(drawer_id)
+        documents.append(text)
+        metadatas.append(
+            {
+                "wing": "wing_a",
+                "hall": "technical",
+                "room": "architecture",
+                "source_file": "split-conv.jsonl",
+                "chunk_index": chunk,
+                "filed_at": "2026-06-15T10:00:00",
+            }
+        )
+        n += 1
+
+    # A headless tool-output file: slices with no "> " heads form a document
+    # family, and their arrow-lines classify as tool noise -- exercising both
+    # the collapsed-results line and document dedupe. Filed into an existing
+    # chamber so the shape constants above stay true.
+    dump = "\n".join(
+        f"→ -rw-rw-r-- 1 user user {k} apr 29 15:05 noisetoken_{k}.txt"
+        for k in range(6)
+    )
+    for k in range(3):
+        ids.append(f"dump{k}")
+        documents.append(dump)
+        metadatas.append(
+            {
+                "wing": "wing_b",
+                "hall": "diary",
+                "room": "general",
+                "source_file": "tool-dump.txt",
+                "chunk_index": k,
+                "filed_at": "2026-06-16T10:00:00",
+            }
+        )
+        n += 1
+
     vectors = rng.normal(size=(n, 384)).astype(np.float32)
     vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
     collection.add(

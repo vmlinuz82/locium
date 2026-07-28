@@ -45,6 +45,16 @@ def palace_mtime(palace: Path) -> float:
     return newest
 
 
+def _int_or_none(value) -> int | None:
+    """chunk_index as stored, but only when it is genuinely an int.
+
+    Chroma metadata is untyped; a bool would also pass isinstance(int), and
+    a stray string index must not crash the build."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
 def read_drawers(palace_copy: Path) -> tuple[list[Drawer], np.ndarray]:
     """Load every drawer and its embedding from a palace copy.
 
@@ -127,6 +137,7 @@ def read_drawers(palace_copy: Path) -> tuple[list[Drawer], np.ndarray]:
                 "filed_at", (metadatas[i] or {}).get("created_at", "")
             ),
             source_file=(metadatas[i] or {}).get("source_file", ""),
+            chunk_index=_int_or_none((metadatas[i] or {}).get("chunk_index")),
         )
         for i, drawer_id in enumerate(ids)
     ]
