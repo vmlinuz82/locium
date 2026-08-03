@@ -68,12 +68,13 @@ hierarchy; Locium draws that hierarchy directly as a floorplan: wings and
 halls become blocks sharing a full edge with a connected core, rooms become
 chambers inside them, and each drawer is a dot scattered inside its chamber.
 
-Block size is `log(count + 1)`, not proportional to how full a room is — one
-wing can hold the vast majority of a real store, and sizing by count would
-make most chambers smaller than their own labels. Density of dots shows
-fullness instead. A dot's value carries recency (older drawers read fainter,
-recent ones read stronger), and it inverts with the theme so "recent" always
-reads as more present, not just differently coloured.
+Block size is `log(count + 1)`, not proportional to how full a room is — the
+wings of a real store span three orders of magnitude, from thousands of
+drawers down to a handful, and sizing by count would make most chambers
+smaller than their own labels. Density of dots shows fullness instead. A
+dot's value carries recency (older drawers read fainter, recent ones read
+stronger), and it inverts with the theme so "recent" always reads as more
+present, not just differently coloured.
 
 Position no longer encodes meaning — proximity on screen means "same room",
 not "similar content". Clicking a dot fetches that drawer's full text from
@@ -106,6 +107,11 @@ rectangle; wing/hall/chamber geometry itself is recomputed fresh on every
 build. New drawers are packed into the space that's left. Only `--refit`
 discards everything and repacks from scratch, and it will invalidate the map
 you have memorised.
+
+Re-filing on the palace side moves drawers too. If memories are reassigned to
+different wings, their chamber has changed, so they are placed afresh on the
+next build even without `--refit` — expect the floorplan to redraw when the
+palace is reorganised, not just when it grows.
 
 ## Read-only
 
