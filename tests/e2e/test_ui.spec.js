@@ -530,7 +530,10 @@ test("search dims non-matches without moving any dot", async ({ page }) => {
 
 test("search builds a relevance chain, ranked and cleared correctly", async ({ page }) => {
   await ready(page);
-  await page.evaluate(() => window.__locium.search("technical architecture notes"));
+  // The fixture plants four graded semantic hits for this query; the rest of
+  // its vectors are random and never clear the chain floor. Searching for
+  // anything else leaves the chain empty and the assertions below vacuous.
+  await page.evaluate(() => window.__locium.search("deployment rollback checklist"));
   await page.waitForFunction(() => window.__locium.renderer.highlighted.size > 0);
 
   const chain = await page.evaluate(() =>
@@ -538,6 +541,7 @@ test("search builds a relevance chain, ranked and cleared correctly", async ({ p
   );
   // Every hit clears the floor, the chain is capped, and it is ordered by
   // relevance strongest-first (this is what the connecting lines thread through).
+  expect(chain.length).toBeGreaterThanOrEqual(4);
   expect(chain.length).toBeLessThanOrEqual(16);
   for (const c of chain) {
     expect(c.rel).toBeGreaterThanOrEqual(0.3);

@@ -52,6 +52,13 @@ LAYOUT = [
 DOT_CAP = 12
 PORT = 7799
 
+# The query the relevance-chain test searches for. Deliberately near-orthogonal
+# to every other query the suite uses (highest cosine 0.08 against "pipeline",
+# well under the 0.15 recall floor), so planting vectors for it cannot add
+# stray hits to the tests that assert exact match counts.
+CHAIN_QUERY = "deployment rollback checklist"
+CHAIN_ALPHAS = (0.9, 0.75, 0.6, 0.45)
+
 
 def make_palace(path: Path) -> None:
     import chromadb
@@ -137,6 +144,19 @@ def make_palace(path: Path) -> None:
 
     vectors = rng.normal(size=(n, 384)).astype(np.float32)
     vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+
+    # Plant a graded set of genuine semantic hits for CHAIN_QUERY. Random
+    # vectors sit near zero cosine to a real query embedding -- below both the
+    # 0.15 recall floor and the 0.3 chain floor -- so without this the
+    # relevance chain is always empty and every assertion about its contents
+    # passes vacuously. Blending against the query at descending weights gives
+    # hits that clear the floor in a known order.
+    from locium.embed import embed_query
+
+    query_vector = embed_query(CHAIN_QUERY)
+    for row, alpha in enumerate(CHAIN_ALPHAS):
+        blended = alpha * query_vector + (1 - alpha) * vectors[row]
+        vectors[row] = blended / np.linalg.norm(blended)
     collection.add(
         ids=ids,
         documents=documents,
