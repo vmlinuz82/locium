@@ -99,6 +99,56 @@ Every drawer is drawn by default, so every hit has a dot. A positive `dot_cap`
 can be set to stop a chamber past N drawers from adding more dots (its true
 count is still shown) if you'd rather keep the densest rooms readable.
 
+## Palace health
+
+The line under the title reads the store, not the drawing:
+
+    7679 drawers · 14 entities · 14 facts (1 expired) · 7% noise · 2% data
+
+Entities and facts come from MemPalace's knowledge graph, which lives beside
+the palace as `knowledge_graph.sqlite3` and is snapshotted into the index at
+build time. An expired fact is one the agent has since invalidated; those are
+counted here and struck through where they appear, because invalidated
+knowledge is a signal worth seeing rather than clutter to hide. A missing or
+unreadable graph degrades to an empty snapshot instead of failing the build —
+it is a lens here, not a requirement.
+
+The last two figures are the drawers that are not prose. A mined palace stores
+whatever crossed the transcript, so alongside real reasoning sit `ls -la`
+listings, grep dumps, pasted CSVs and diff hunks; they embed strongly and rank
+as memories while carrying no reusable knowledge. Locium classifies each
+drawer's content shape at build time and reports the two kinds apart, as the
+results panel names them: *noise* is tool traffic, *data* is structured
+payload. Search collapses both behind a single line so a pasted CSV cannot
+bury the readable hits. Either figure is omitted when nothing carries that
+shape, and classification is display-side only — nothing is ever excluded
+from the index.
+
+Identifying a diff takes more than lines opening with `+` or `-`: a markdown
+bullet list looks identical line by line, and it is the most common shape in a
+mined transcript. The rule therefore looks for structure a diff cannot omit —
+a `diff --git` header, an `@@` hunk marker, a `+++`/`---` file pair — before
+counting body lines at all.
+
+A search adds a second reading, above its results: whether an agent asking
+MemPalace that question would get back anything it could use — how many of
+the top hits clear the similarity floor, and how many of those are fragments
+or duplicate halves of one split exchange.
+
+## The diary lens
+
+Search is one way an agent recalls; the knowledge graph is a second, and its
+own session journal is a third. **Diary** switches the map to that journal:
+everything else dims, the entries light up wherever they sit, and the panel
+lists them newest first with their dates.
+
+The entries do not live together. MemPalace writes each one into the wing of
+the project it was written in and marks it by room, so a journal spanning
+years of work is scattered across every wing in the building. The lens
+filters on that room and gathers it back into one reading, which is why
+pressing **Diary** lights dots in wings that otherwise have nothing to do
+with each other. Press it again to return to the whole palace.
+
 ## Stable coordinates
 
 A drawer keeps its coordinate as long as its chamber (`wing`, `hall`, `room`)
