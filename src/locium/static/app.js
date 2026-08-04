@@ -801,10 +801,12 @@
   }
 
   /* ---- diary lens -------------------------------------------------------
-     The third recall leg: the agent's own session journal. Diary entries are
-     ordinary drawers in one wing, so the lens is a filter, not a data source
-     -- dim everything else and list the entries newest-first. */
-  const DIARY_WING = "wing_diary";
+     The third recall leg: the agent's own session journal. MemPalace files a
+     diary entry into the wing of the project it was written in, marked by the
+     room rather than a wing of its own, so the lens filters on the room and
+     gathers the journal back out of every wing at once -- dim everything
+     else and list the entries newest-first. */
+  const DIARY_ROOM = "diary";
 
   function toggleDiary() {
     if (state.diaryOn) {
@@ -819,7 +821,7 @@
     const drawers = state.meta.drawers;
     const entries = drawers
       .map((d, i) => ({ index: i, date: d.date || "" }))
-      .filter((e) => drawers[e.index].wing === DIARY_WING)
+      .filter((e) => drawers[e.index].room === DIARY_ROOM)
       .sort((a, b) => (a.date < b.date ? 1 : -1));
 
     const diarySet = new Set(entries.map((e) => e.index));

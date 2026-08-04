@@ -2,13 +2,14 @@
    window.__locium and the renderer's state -- the canvas has no queryable
    DOM, so every assertion below reads state rather than pixels.
 
-   Fixture shape (see fixture_server.py's LAYOUT): 7 wings, 9 (wing, hall)
+   Fixture shape (see fixture_server.py's LAYOUT): 6 wings, 9 (wing, hall)
    pairs, 10 (wing, hall, room) chambers, dot_cap=12 with two chambers over
-   that cap so the capped path is exercised, plus a wing_diary wing for the
-   diary lens and a two-fact knowledge graph beside the palace. */
+   that cap so the capped path is exercised, plus a hall_diary/diary chamber
+   inside a project wing for the diary lens -- the shape MemPalace actually
+   writes -- and a two-fact knowledge graph beside the palace. */
 const { test, expect } = require("@playwright/test");
 
-const WING_COUNT = 7;
+const WING_COUNT = 6;
 const HALL_COUNT = 9;
 const CHAMBER_COUNT = 10;
 

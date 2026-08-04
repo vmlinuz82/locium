@@ -43,7 +43,11 @@ LAYOUT = [
     ("wing_c", "technical", "problem", 8),
     ("wing_d", "planning", "architecture", 6),
     ("wing_e", "diary", "problem", 4),
-    ("wing_diary", "diary", "diary", 4),  # the diary lens filters to this wing
+    # MemPalace files diary entries into the project's own wing, marked by
+    # hall_diary/diary -- not into a wing of their own. The lens filters on
+    # that room, so the fixture has to carry the same shape. Kept out of
+    # wing_a, which the search tests query by name.
+    ("wing_d", "hall_diary", "diary", 4),
 ]
 DOT_CAP = 12
 PORT = 7799
