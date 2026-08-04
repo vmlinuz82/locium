@@ -7,11 +7,17 @@ knowledge, so the viewer needs to know which is which -- to collapse them in
 search results and to report a noise share on the health line. Classification
 is display-side only; nothing is ever excluded from the index.
 
-Two complications shape the heuristics. Exchange-mode chunks had their
+Three complications shape the heuristics. Exchange-mode chunks had their
 newlines collapsed to spaces at mine time, so line-based rules alone are
 blind to a single-line CSV -- hence the density signals over the whole text.
 And prose that merely QUOTES a command or one CSV row must stay prose --
 hence thresholds on shares, never on presence.
+
+The exception is the diff rule. A markdown bullet list is line-for-line
+indistinguishable from a diff body and is ~100% bullets, so a share test
+alone reads the most common shape in a transcript as a data dump. That rule
+is the one place presence is required: a structural marker must appear before
+body lines are counted at all.
 """
 
 import re
@@ -22,6 +28,12 @@ _TOOL_CALL_RE = re.compile(
 )
 _PERMISSION_RE = re.compile(r"[-ld][rwxst-]{9}\s+\d+\s+\S+")
 _DIFF_LINE_RE = re.compile(r"^(?:diff --git |index [0-9a-f]{7,}\.\.|@@ |\+\+\+ |--- |[+-][^+-])")
+# Structural proof that a block is a diff at all. Its body lines -- the
+# "[+-]" arm above -- are indistinguishable from a markdown bullet ("- point")
+# or a wrapped shell flag ("-H 'x'"), and a bulleted list is ~100% bullets, so
+# a share test over body lines alone reads ordinary prose as a diff. A real
+# diff always announces itself with one of these; a list never does.
+_DIFF_MARKER_RE = re.compile(r"^(?:diff --git |index [0-9a-f]{7,}\.\.|@@ |\+\+\+ |--- )", re.M)
 
 # One quoted CSV field boundary. '","' is the signature of quoted CSV rows
 # and essentially never occurs in prose.
@@ -61,7 +73,11 @@ def classify(text: str) -> str | None:
     ) >= 3:
         return "noise"
 
-    if len(lines) >= 4 and diff_lines / len(lines) >= 0.5:
+    if (
+        _DIFF_MARKER_RE.search(stripped)
+        and len(lines) >= 4
+        and diff_lines / len(lines) >= 0.5
+    ):
         return "data"
     # A CSV seam every ~150 chars, at least three of them: a data row dump.
     if csv_seams >= 3 and csv_seams * 150 >= len(stripped):

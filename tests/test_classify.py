@@ -40,6 +40,48 @@ def test_a_diff_hunk_is_data():
     assert classify(diff) == "data"
 
 
+def test_a_markdown_bullet_list_stays_prose():
+    # Every line opens with "-", so a share test over +/- lines alone reads
+    # this as a diff. It is the most common shape in a mined transcript.
+    text = "\n".join(
+        [
+            "- **`README.md`** — complete setup and scaling guide",
+            "- Is this pattern fundamentally sound, or inertia?",
+            "- The large DNS/TCP delta is because it was the first request",
+            "- Toggle \"Reset user data on new activity\" to On",
+            "- Only 7.0.2 guards both loops",
+        ]
+    )
+    assert classify(text) is None
+
+
+def test_a_numbered_list_with_plus_markers_stays_prose():
+    text = "\n".join(
+        [
+            "+1. Open the analytics console and pick the property",
+            "+2. \"Event data retention\" → 14 months, the free-tier maximum",
+            "+3. Toggle \"Reset user data on new activity\" → On",
+            "+4. Save, then wait a full day for the change to take",
+        ]
+    )
+    assert classify(text) is None
+
+
+def test_wrapped_shell_flags_stay_prose():
+    # Continuation lines of a long command open with "-", but there is no
+    # diff structure anywhere in the block.
+    text = "\n".join(
+        [
+            "curl -sS https://api.example.com/v1/orders \\",
+            "  -H 'Content-Type: application/json' \\",
+            "  -H 'Authorization: Bearer $TOKEN' \\",
+            "  -d '{\"id\": 42}' \\",
+            "  --fail-with-body",
+        ]
+    )
+    assert classify(text) is None
+
+
 def test_tool_result_lines_are_noise():
     dump = "\n".join(
         ["→ total 12"]
