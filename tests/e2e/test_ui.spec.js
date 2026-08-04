@@ -460,7 +460,9 @@ test("the search box clear button resets the query and the map", async ({ page }
 test("the health line reports drawers, entities and facts", async ({ page }) => {
   await ready(page);
   const line = await page.locator("#hs").textContent();
-  expect(line).toMatch(/\d+ drawers · 3 entities · 2 facts \(1 expired\)/);
+  // Tool traffic reports under its own label, not as an umbrella "noise"
+  // share that silently included data payloads too.
+  expect(line).toMatch(/\d+ drawers · 3 entities · 2 facts \(1 expired\) · \d+% noise/);
 });
 
 test("a search that names an entity lists its facts, expired ones struck", async ({ page }) => {

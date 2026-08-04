@@ -281,11 +281,17 @@
     renderer.setData(state.meta);
 
     const expired = state.kg.triples.filter((t) => t.to).length;
-    const noisy = state.meta.drawers.filter((d) => d.kind).length;
+    // Tool traffic and data payloads are reported apart, the same way the
+    // results panel names them -- lumping them under one "noise" figure
+    // overstated it. Either share is omitted when nothing carries that kind.
+    const share = (kind) => {
+      const n = state.meta.drawers.filter((d) => d.kind === kind).length;
+      return n ? ` · ${Math.round((100 * n) / state.meta.drawer_count)}% ${kind}` : "";
+    };
     $("hs").textContent =
       `${state.meta.drawer_count} drawers · ${state.kg.entity_count} entities · ` +
       `${state.kg.triples.length} facts` + (expired ? ` (${expired} expired)` : "") +
-      (noisy ? ` · ${Math.round((100 * noisy) / state.meta.drawer_count)}% noise` : "");
+      share("noise") + share("data");
     initTheme();
     if (state.meta.stale) {
       showBanner(
