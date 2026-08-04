@@ -112,7 +112,10 @@ def make_palace(path: Path) -> None:
     # A headless tool-output file: slices with no "> " heads form a document
     # family, and their arrow-lines classify as tool noise -- exercising both
     # the collapsed-results line and document dedupe. Filed into an existing
-    # chamber so the shape constants above stay true.
+    # chamber so the shape constants above stay true, and into one with room
+    # left under DOT_CAP: the cap keeps only the first dot_cap rows of a
+    # chamber, so a chamber already at 10 would silently drop the third slice
+    # and leave the family a 2-part exchange.
     dump = "\n".join(
         f"→ -rw-rw-r-- 1 user user {k} apr 29 15:05 noisetoken_{k}.txt"
         for k in range(6)
@@ -122,9 +125,9 @@ def make_palace(path: Path) -> None:
         documents.append(dump)
         metadatas.append(
             {
-                "wing": "wing_b",
-                "hall": "diary",
-                "room": "general",
+                "wing": "wing_c",
+                "hall": "technical",
+                "room": "problem",
                 "source_file": "tool-dump.txt",
                 "chunk_index": k,
                 "filed_at": "2026-06-16T10:00:00",
