@@ -138,9 +138,16 @@ test("clicking a result opens the popup and flies the map to its dot", async ({ 
   });
   expect(await page.evaluate(() => window.__locium.renderer.scale)).toBe(scaleBefore);
 
+  // While the popup is open it owns the marker, so moving off the card leaves
+  // the dot lit. This also parks the cursor away from the result list: closing
+  // the popup uncovers whatever sits under the pointer, and a card there would
+  // re-acquire the hover and re-mark its dot before the assertion could run.
+  await page.mouse.move(5, 5);
+  expect(await page.evaluate(() => window.__locium.renderer.hovered)).not.toBeNull();
+
   // Closing the popup releases the marker.
   await page.keyboard.press("Escape");
-  expect(await page.evaluate(() => window.__locium.renderer.hovered)).toBeNull();
+  await page.waitForFunction(() => window.__locium.renderer.hovered === null);
 });
 
 test("the panel scrolls back to the top when its content is replaced", async ({ page }) => {
@@ -279,8 +286,11 @@ test("a result opens its full text without disturbing the selection", async ({ p
   // Selecting stays an explicit opt-in.
   await page.click("#mg");
   await expect(page.locator("#mo")).not.toHaveClass(/on/);
-  await page.waitForFunction(() => window.__locium.state.selected !== null);
-  expect(await page.evaluate(() => window.__locium.renderer.rays.length)).toBe(10);
+  // select() sets state.selected before awaiting the drawer fetch and fills
+  // the rays only after it resolves, so waiting on the selection alone races
+  // the star. Wait for the thing being asserted.
+  await page.waitForFunction(() => window.__locium.renderer.rays.length === 10);
+  expect(await page.evaluate(() => window.__locium.state.selected)).not.toBeNull();
 });
 
 test("chunks of one exchange collapse to a single result card", async ({ page }) => {
